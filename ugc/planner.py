@@ -160,7 +160,8 @@ def _variety_and_continuity(tag: str, sb: Storyboard, relax_variety: bool = Fals
     return out
 
 
-def lint(spec: ProductSpec, plan: PromptPlan, reference: dict | None = None) -> list[Issue]:
+def lint(spec: ProductSpec, plan: PromptPlan, reference: dict | None = None,
+         clip_limit: float | None = None) -> list[Issue]:
     issues: list[Issue] = []
     target = round(reference["duration_s"]) if reference else spec.target_duration_s
     sbs = plan.storyboards
@@ -184,8 +185,9 @@ def lint(spec: ProductSpec, plan: PromptPlan, reference: dict | None = None) -> 
         if missing:
             issues.append(Issue("error", f"{tag}: required shots not covered: {missing}"))
         for i, c in enumerate(sb.clips, 1):
-            if c.duration_s not in config.allowed_clip_seconds():
-                issues.append(Issue("error", f"{tag} clip {i}: duration must be one of {config.allowed_clip_seconds()}, got {c.duration_s}"))
+            if c.duration_s not in config.allowed_clip_seconds(clip_limit):
+                issues.append(Issue("error", f"{tag} clip {i}: duration must be one of "
+                                             f"{config.allowed_clip_seconds(clip_limit)}, got {c.duration_s}"))
             for t in c.shots:
                 if t not in SHOT_TAGS:
                     issues.append(Issue("error", f"{tag} clip {i}: unknown shot tag {t!r}"))
@@ -267,7 +269,7 @@ def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue], reference
 
 
 def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions: int = 2,
-              reference: dict | None = None) -> dict:
+              reference: dict | None = None, clip_limit: float | None = None) -> dict:
     client = client or llm.get_client()
     content: list[dict] = [{"type": "text", "text": (
         "Product spec (JSON):\n" + spec.model_dump_json(indent=2) +
@@ -276,13 +278,13 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
     for i, p in enumerate(listing[:6], 1):
         content += [{"type": "text", "text": f"LISTING PHOTO {i}"}, llm.image_block(to_jpeg_b64(read_image(p), 1024))]
 
-    secs = config.allowed_clip_seconds()
+    secs = config.allowed_clip_seconds(clip_limit)
     if reference:
         content.append({"type": "text", "text": motion.to_prompt_block(reference)})
     system = ((SYSTEM + (REFERENCE_RULES if reference else "")).replace("{language}", spec.language)
               .replace("{clip_seconds}", ", ".join(map(str, secs[:-1])) + (" or " if len(secs) > 1 else "") + str(secs[-1])))
     plan = llm.parse(client, PromptPlan, system, content, max_tokens=12000)
-    issues = lint(spec, plan, reference)
+    issues = lint(spec, plan, reference, clip_limit)
     for _ in range(max_revisions):
         errors = [i for i in issues if i.level == "error"]
         if not errors:
@@ -290,5 +292,5 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
         feedback = ("Your previous plan violated these rules. Return a corrected full plan.\n"
                     + "\n".join(f"- {e.msg}" for e in errors) + "\n\nPrevious plan:\n" + plan.model_dump_json(indent=2))
         plan = llm.parse(client, PromptPlan, system, content + [{"type": "text", "text": feedback}], max_tokens=12000)
-        issues = lint(spec, plan, reference)
+        issues = lint(spec, plan, reference, clip_limit)
     return assemble(spec, plan, issues, reference)

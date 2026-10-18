@@ -28,8 +28,12 @@ CLIP_SECONDS = tuple(sorted({int(x) for x in os.environ.get("UGC_CLIP_SECONDS", 
 MAX_CLIP_S = int(os.environ.get("UGC_MAX_CLIP_S", "8"))  # set 4 for models capped at ~4 s (e.g. LTX-Video 13B on deAPI)
 
 
-def allowed_clip_seconds() -> tuple[int, ...]:
-    return tuple(s for s in CLIP_SECONDS if s <= MAX_CLIP_S) or (CLIP_SECONDS[0],)
+def allowed_clip_seconds(limit: float | None = None) -> tuple[int, ...]:
+    """Clip lengths the planner may use. `limit` is the chosen model's real maximum in seconds (read live from the
+    provider); the whole-second length that just fits is always allowed, so short-clip models still get a valid plan."""
+    cap = MAX_CLIP_S if limit is None else min(MAX_CLIP_S, int(limit))
+    extra = {cap} if limit is not None and cap >= 1 else set()
+    return tuple(sorted({s for s in CLIP_SECONDS if s <= cap} | extra)) or (CLIP_SECONDS[0],)
 
 # Estimated USD rates. From third-party price pages, NOT verified against fal's live pricing.
 IMAGE_USD_EACH = float(os.environ.get("UGC_IMAGE_USD", "0.04"))

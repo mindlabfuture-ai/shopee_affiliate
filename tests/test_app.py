@@ -310,3 +310,28 @@ def test_changing_the_plan_discards_clips_made_for_the_old_one(client, tmp_path,
     write_json(d / "plan.json", plan3("new prompt "))  # a regenerated plan, same avatar and storyboard number
     j = wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"], timeout=180)
     assert j["status"] == "done" and fake.calls == ["clip_01.mp4", "clip_02.mp4", "clip_03.mp4"]
+
+
+def test_planning_uses_the_chosen_models_real_clip_limit(client, tmp_path, monkeypatch):
+    from ugc import planner, providers
+    seen = {}
+
+    class Limited(FakeProv):
+        def max_clip_seconds(self):
+            return 2.33
+
+    monkeypatch.setitem(providers._instances, config.PROVIDER, Limited())
+    monkeypatch.setattr(planner, "make_plan", lambda spec, listing, **kw: seen.update(kw) or {"storyboards": []})
+    slug = make_product(client, tmp_path)
+    wait(client, client.post(f"/api/products/{slug}/plan").json()["job"])
+    assert seen["clip_limit"] == 2.33
+
+
+def test_planning_still_works_for_providers_that_report_no_limit(client, tmp_path, monkeypatch):
+    from ugc import planner, providers
+    seen = {}
+    monkeypatch.setitem(providers._instances, config.PROVIDER, FakeProv())  # no max_clip_seconds at all
+    monkeypatch.setattr(planner, "make_plan", lambda spec, listing, **kw: seen.update(kw) or {"storyboards": []})
+    slug = make_product(client, tmp_path)
+    assert wait(client, client.post(f"/api/products/{slug}/plan").json()["job"])["status"] == "done"
+    assert seen["clip_limit"] is None

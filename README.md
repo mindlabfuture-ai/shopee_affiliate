@@ -42,6 +42,9 @@ video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`, u
 deAPI dashboard (for example `Seedance 2.5`; case, spaces and punctuation are ignored; an unknown name lists the choices). Size comes from
 `UGC_DEAPI_SIZE` (default 576x1024) and is clamped to each model's limits. Notes:
 
+- **Clip length is automatic.** When the plan is made, the app reads the chosen video model's real maximum clip length from deAPI
+  (`max_frames` / fps) and plans clips that fit, so you do not have to look it up; `UGC_MAX_CLIP_S` still caps it. A model
+  that publishes no frame limit falls back to the settings (`UGC_CLIP_SECONDS`, `UGC_MAX_CLIP_S`).
 - Model limits are read live from deAPI. If a model caps clip length below the plan (for example about 5 s),
   the clip is shorter than planned and a message is printed; the join still works.
 - Costs are quoted with deAPI's price endpoints and treated as USD; the daily cap still applies.

@@ -209,3 +209,21 @@ def test_longer_clip_lengths_can_be_allowed_for_longer_clip_models(monkeypatch):
     monkeypatch.setenv("UGC_MAX_CLIP_S", "30")
     importlib.reload(config)
     assert config.allowed_clip_seconds() == (5, 8, 10, 12)
+
+
+# ---------- the model's real clip limit ----------
+def test_allowed_clip_lengths_follow_the_models_real_limit():
+    from ugc import config
+    assert config.allowed_clip_seconds() == (4, 6, 8)  # no provider limit: unchanged
+    assert config.allowed_clip_seconds(2.33) == (2,)  # a model that only makes ~2 s clips still gets a valid plan
+    assert config.allowed_clip_seconds(3.9) == (3,)
+    assert config.allowed_clip_seconds(5.04) == (4, 5)
+    assert config.allowed_clip_seconds(30) == (4, 6, 8)  # UGC_MAX_CLIP_S (default 8) still caps it
+
+
+def test_the_planner_is_told_and_held_to_the_models_limit(tmp_path):
+    client = FakeClient(good_plan())
+    planner.make_plan(SPEC, listing(tmp_path), client=client, max_revisions=0, clip_limit=2.33)
+    assert "Each clip is 2 seconds" in " ".join(client.calls[0]["system"].split())
+    msgs = " | ".join(i.msg for i in planner.lint(SPEC, good_plan(), clip_limit=2.33) if i.level == "error")
+    assert "duration must be one of (2,)" in msgs  # good_plan uses 4 s and 6 s clips

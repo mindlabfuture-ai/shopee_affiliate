@@ -150,6 +150,16 @@ class DeapiProvider:
     def video_model(self) -> dict:
         return self._choose("video", "img2video", config.DEAPI_VIDEO_MODEL, PREFER_VIDEO)
 
+    def max_clip_seconds(self) -> float | None:
+        """Longest clip the chosen video model can make (max_frames / fps from /api/v2/models); None if unknown."""
+        try:
+            info = self.video_model().get("info") or {}
+            frames = (info.get("limits") or {}).get("max_frames")
+            fps = int((info.get("defaults") or {}).get("fps") or 24)
+            return float(frames) / fps if frames else None
+        except (DeapiError, ValueError, TypeError):
+            return None
+
     def describe(self) -> dict:  # no network: this runs on every page load
         img = self._chosen.get("image", {}).get("slug") or config.DEAPI_IMAGE_MODEL or "auto"
         vid = self._chosen.get("video", {}).get("slug") or config.DEAPI_VIDEO_MODEL or "auto"

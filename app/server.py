@@ -213,7 +213,9 @@ def plan(slug: str):
         raise HTTPException(400, "upload listing photos first")
 
     def run():
-        result = planner.make_plan(spec, listing, reference=read_json(product_dir(slug) / "reference" / "motion.json"))
+        limit = getattr(providers.get_provider(), "max_clip_seconds", lambda: None)()  # the model's real maximum
+        result = planner.make_plan(spec, listing, reference=read_json(product_dir(slug) / "reference" / "motion.json"),
+                                   clip_limit=limit)
         costs.record("claude_plan", 0.07, slug)  # rough estimate, recorded only on success
         write_json(product_dir(slug) / "plan.json", result)
         return result

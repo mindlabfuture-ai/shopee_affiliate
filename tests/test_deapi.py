@@ -307,3 +307,17 @@ def test_an_unknown_or_ambiguous_pinned_model_lists_the_choices(monkeypatch):
     monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", "2")  # matches both "Seedance 2.5" and "LTX-2.3 22B"
     with pytest.raises(DeapiError, match="matches several models"):
         provider(Api()).video_model()
+
+
+def test_the_models_real_maximum_clip_length_is_read_from_its_limits(monkeypatch):
+    p = provider(Api())
+    assert p.max_clip_seconds() == pytest.approx(121 / 24)  # Ltx_2_3_22B: max_frames 121 at 24 fps
+    monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", "Seedance 2.5")
+    assert provider(Api()).max_clip_seconds() is None  # limits not published for this model: unknown, not guessed
+
+
+def test_the_clip_limit_is_unknown_without_a_key_or_when_the_api_fails():
+    assert DeapiProvider(api_key="", transport=httpx.MockTransport(Api())).max_clip_seconds() is None
+    p = provider(Api())
+    p.client = httpx.Client(base_url="https://api.deapi.ai", transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    assert p.max_clip_seconds() is None
