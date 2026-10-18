@@ -67,8 +67,8 @@ STORYBOARDS (required): the outfit in the uploaded photos is featured in an outd
 - every storyboard covers all required shots and has its own avatar still prompt and clips;
 - the same fictional avatar and the same outfit in every storyboard; only the shoot concept changes.
 
-Format: vertical 9:16, silent. Each clip is 4, 6 or 8 seconds; a storyboard's clips total about the target
-duration. Shot tags: {', '.join(SHOT_TAGS)}.
+Format: vertical 9:16, silent. Each clip is {{clip_seconds}} seconds; a storyboard's clips total about the target
+duration (use more clips when each is short). Shot tags: {', '.join(SHOT_TAGS)}.
 Pose library (pick and combine; change pose roughly every 1-2 seconds, keep motion gentle so the garment
 stays stable): {json.dumps(POSES)}.
 Rules for motion prompts: describe the person's movement and the camera only. No speech, no music, no
@@ -126,8 +126,8 @@ def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
         if missing:
             issues.append(Issue("error", f"{tag}: required shots not covered: {missing}"))
         for i, c in enumerate(sb.clips, 1):
-            if c.duration_s not in config.CLIP_SECONDS:
-                issues.append(Issue("error", f"{tag} clip {i}: duration must be one of {config.CLIP_SECONDS}, got {c.duration_s}"))
+            if c.duration_s not in config.allowed_clip_seconds():
+                issues.append(Issue("error", f"{tag} clip {i}: duration must be one of {config.allowed_clip_seconds()}, got {c.duration_s}"))
             for t in c.shots:
                 if t not in SHOT_TAGS:
                     issues.append(Issue("error", f"{tag} clip {i}: unknown shot tag {t!r}"))
@@ -195,7 +195,9 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
     for i, p in enumerate(listing[:6], 1):
         content += [{"type": "text", "text": f"LISTING PHOTO {i}"}, llm.image_block(to_jpeg_b64(read_image(p), 1024))]
 
-    system = SYSTEM.replace("{language}", spec.language)
+    secs = config.allowed_clip_seconds()
+    system = (SYSTEM.replace("{language}", spec.language)
+              .replace("{clip_seconds}", ", ".join(map(str, secs[:-1])) + (" or " if len(secs) > 1 else "") + str(secs[-1])))
     plan = llm.parse(client, PromptPlan, system, content, max_tokens=12000)
     issues = lint(spec, plan)
     for _ in range(max_revisions):

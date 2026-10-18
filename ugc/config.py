@@ -23,6 +23,11 @@ IMAGE_ENDPOINT = os.environ.get("UGC_IMAGE_ENDPOINT", "fal-ai/nano-banana/edit")
 VIDEO_ENDPOINT = os.environ.get("UGC_VIDEO_ENDPOINT", "fal-ai/veo3.1/lite/image-to-video")
 VIDEO_RESOLUTION = os.environ.get("UGC_VIDEO_RESOLUTION", "720p")  # 1080p requires 8s clips on Veo Lite
 CLIP_SECONDS = (4, 6, 8)  # durations Veo 3.1 accepts
+MAX_CLIP_S = int(os.environ.get("UGC_MAX_CLIP_S", "8"))  # set 4 for models capped at ~4 s (e.g. LTX-Video 13B on deAPI)
+
+
+def allowed_clip_seconds() -> tuple[int, ...]:
+    return tuple(s for s in CLIP_SECONDS if s <= MAX_CLIP_S) or (CLIP_SECONDS[0],)
 
 # Estimated USD rates. From third-party price pages, NOT verified against fal's live pricing.
 IMAGE_USD_EACH = float(os.environ.get("UGC_IMAGE_USD", "0.04"))

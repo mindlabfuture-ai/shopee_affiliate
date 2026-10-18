@@ -73,7 +73,7 @@ class DeapiProvider:
         detail = body.get("message") or r.text[:200]
         if body.get("errors"):
             detail += f" {body['errors']}"
-        hint = {401: "check DEAPI_API_KEY", 403: "account suspended or access denied",
+        hint = {401: "check DEAPI_API_KEY", 403: "account suspended, or this model needs a Premium account (any top-up unlocks it); pin a free one with UGC_DEAPI_VIDEO_MODEL / UGC_DEAPI_IMAGE_MODEL",
                 422: "the request does not fit this model's limits (see `python -m ugc deapi-models`)",
                 429: f"rate limited ({r.headers.get('X-RateLimit-Type', '?')}); retry after "
                      f"{r.headers.get('Retry-After', '?')}s"}.get(r.status_code, "")
@@ -122,10 +122,14 @@ class DeapiProvider:
     # ---------- parameters from live model limits ----------
     @staticmethod
     def _size(limits: dict) -> tuple[int, int]:
+        """Target WxH scaled down (keeping the aspect ratio) to fit the model's max, then snapped to its step."""
         w, h = (int(x) for x in config.DEAPI_SIZE.lower().split("x"))
         step = int(limits.get("resolution_step") or limits.get("dimension_multiple") or 32)
-        return (_snap(w, step, int(limits.get("min_width", 64)), int(limits.get("max_width", 4096))),
-                _snap(h, step, int(limits.get("min_height", 64)), int(limits.get("max_height", 4096))))
+        max_w, max_h = int(limits.get("max_width", 4096)), int(limits.get("max_height", 4096))
+        scale = min(1.0, max_w / w, max_h / h)
+        w, h = round(w * scale), round(h * scale)
+        return (_snap(w, step, int(limits.get("min_width", 64)), max_w),
+                _snap(h, step, int(limits.get("min_height", 64)), max_h))
 
     def _video_params(self, seconds: int) -> dict:
         m = self.video_model()

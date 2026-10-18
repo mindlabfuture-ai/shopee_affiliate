@@ -96,3 +96,25 @@ def test_plan_gives_up_after_max_revisions(tmp_path):
     result = planner.make_plan(SPEC, listing(tmp_path), client=client, max_revisions=2)
     assert len(client.calls) == 3
     assert any(i["level"] == "error" for i in result["lint"])  # surfaced, not hidden
+
+
+def test_short_clip_models_restrict_planned_durations(monkeypatch):
+    from ugc import config
+    monkeypatch.setattr(config, "MAX_CLIP_S", 4)
+    assert config.allowed_clip_seconds() == (4,)
+    msgs = " | ".join(i.msg for i in planner.lint(SPEC, good_plan()))  # good_plan has a 6 s clip
+    assert "duration must be one of (4,)" in msgs
+    three_short = [ClipPlan(duration_s=4, shots=["front", "full_length"], motion_prompt="slow turn"),
+                   ClipPlan(duration_s=4, shots=["back"], motion_prompt="shows the back"),
+                   ClipPlan(duration_s=4, shots=["walk"], motion_prompt="walks forward")]
+    ok = good_plan(storyboards=[board("a", clips=three_short), board("b", "blue hour", clips=three_short),
+                                board("c", "soft overcast", clips=three_short)])
+    assert not [i for i in planner.lint(SPEC, ok) if i.level == "error"]
+
+
+def test_system_prompt_names_the_allowed_clip_lengths(tmp_path, monkeypatch):
+    from ugc import config
+    monkeypatch.setattr(config, "MAX_CLIP_S", 4)
+    client = FakeClient(good_plan())
+    planner.make_plan(SPEC, listing(tmp_path), client=client, max_revisions=0)
+    assert "Each clip is 4 seconds" in client.calls[0]["system"]

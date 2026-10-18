@@ -46,6 +46,11 @@ video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`. S
 - Costs are quoted with deAPI's price endpoints and treated as USD; the daily cap still applies.
 - Basic accounts have small limits (some models 3 requests/minute, status and price calls 200/day), so the app
   caches quotes and polls every 8 s (`UGC_DEAPI_POLL_S`). Any top-up moves the account to Premium limits.
+- The deAPI dashboard shows five image-to-video models: LTX-2.5 22B Distilled INT8, Seedance 2.5, MiniMax H3 33B
+  Turbo INT8, LTX-2.3 22B and LTX-Video 13B. Its banner says a $10 top-up unlocks "premium models", and I could not
+  see which ones are locked on a free account. If a call returns 403, pin another model.
+- LTX-Video 13B tops out at 768x768 and 1-4 s clips. The size is scaled down keeping 9:16, and for models like
+  this set `UGC_MAX_CLIP_S=4` so the planner writes several 4 s clips per storyboard instead of 6-8 s ones.
 - Check deAPI's terms for commercial use before posting results; I could not see them.
 
 ## Manual mode (no generation spend)

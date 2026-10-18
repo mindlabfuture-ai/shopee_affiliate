@@ -195,3 +195,15 @@ def test_state_reports_deapi_and_its_missing_key(monkeypatch):
     st = TestClient(server.app).get("/api/state").json()
     assert st["config"]["provider"] == "deapi" and "DEAPI_API_KEY" in st["missing"] and st["generation_ready"] is False
     providers._instances.clear()
+
+
+def test_size_keeps_9_16_when_the_model_caps_resolution(monkeypatch):
+    # "LTX-Video 13B" in the deAPI dashboard: up to 768x768
+    limits = {"min_width": 256, "max_width": 768, "min_height": 256, "max_height": 768, "resolution_step": 32}
+    w, h = DeapiProvider._size(limits)
+    assert h == 768 and w % 32 == 0 and w <= 768
+    assert abs(w / h - 9 / 16) < 0.05  # clamping each side alone would have produced 576x768 (3:4)
+
+
+def test_size_unchanged_when_within_limits():
+    assert DeapiProvider._size({"max_width": 2048, "max_height": 2048, "resolution_step": 32}) == (576, 1024)
