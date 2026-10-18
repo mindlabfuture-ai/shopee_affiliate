@@ -17,7 +17,7 @@ import numpy as np
 from fastapi import Body, Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 
-from ugc import config, costs, fal_gen, planner, qa
+from ugc import config, costs, fal_gen, planner, providers, qa
 from ugc.imaging import IMG_EXT
 from ugc.spec import (Feature, ProductSpec, list_slugs, listing_dir, listing_images, load_spec, product_dir,
                       read_json, save_spec, slugify, write_json)
@@ -122,10 +122,11 @@ def _state(slug: str) -> dict:
 
 @app.get("/api/state", dependencies=[Depends(require_auth)])
 def state():
+    prov = providers.get_provider()
+    missing = ([] if os.environ.get("ANTHROPIC_API_KEY") else ["ANTHROPIC_API_KEY"]) + prov.missing_env()
     return {"products": list_slugs(), "spent_today": costs.today_total(), "cap": config.DAILY_CAP_USD,
-            "config": {"image": config.IMAGE_ENDPOINT, "video": config.VIDEO_ENDPOINT, "claude": config.CLAUDE_MODEL,
-                       "resolution": config.VIDEO_RESOLUTION},
-            "keys": {"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")), "fal": bool(os.environ.get("FAL_KEY"))}}
+            "config": {**prov.describe(), "claude": config.CLAUDE_MODEL},
+            "missing": missing, "generation_ready": not prov.missing_env()}
 
 
 @app.post("/api/products", dependencies=[Depends(require_auth)])
@@ -187,13 +188,14 @@ def _qa_avatar(d: Path, spec: ProductSpec, listing: list[Path], img: Path) -> No
 
 @app.post("/api/products/{slug}/avatar/estimate", dependencies=[Depends(require_auth)])
 def avatar_estimate(slug: str, body: dict = Body(default={})):
-    return {"usd": costs.estimate_images(int(body.get("n", 2)))}
+    return {"usd": providers.get_provider().estimate_images(int(body.get("n", 2)))}
 
 
 @app.post("/api/products/{slug}/avatar", dependencies=[Depends(require_auth)])
 def avatar(slug: str, body: dict = Body(...)):
     n = max(1, min(int(body.get("n", 2)), 4))
-    est = costs.estimate_images(n)
+    prov = providers.get_provider()
+    est = prov.estimate_images(n)
     if float(body.get("confirm_usd", 0)) < est:
         raise HTTPException(400, f"confirm the estimated cost (${est:.2f})")
     d = product_dir(slug)
@@ -203,14 +205,14 @@ def avatar(slug: str, body: dict = Body(...)):
     sb_idx = _storyboard(p, body.get("storyboard", 0))["index"]
     spec, listing = load_spec(slug), listing_images(slug)
     avatar_ref = config.DATA_DIR / "avatar_reference.png"
-    refs = listing[:3] + ([avatar_ref] if avatar_ref.exists() else [])
     prompt = p["storyboards"][sb_idx]["avatar_image"]["prompt"]
     if avatar_ref.exists():
         prompt += " The last reference image is the avatar: keep her face, hair and body the same."
 
     def run():
         costs.guard(est)
-        imgs = fal_gen.generate_avatar_images(prompt, refs, n, d / "avatars", prefix=f"avatar_s{sb_idx}")
+        imgs = prov.generate_avatar_images(prompt, listing[:3], avatar_ref if avatar_ref.exists() else None, n,
+                                           d / "avatars", f"avatar_s{sb_idx}")
         for img in imgs:  # cheap gate: check each still before any video money is spent
             _qa_avatar(d, spec, listing, img)
         return [i.name for i in imgs]
@@ -325,7 +327,7 @@ def video_estimate(slug: str):
     if not p:
         raise HTTPException(400, "generate a plan first")
     seconds = sum(c["duration_s"] for c in _approved_storyboard(d, p)["clips"])
-    return {"usd": costs.estimate_video(seconds), "seconds": seconds}
+    return {"usd": providers.get_provider().estimate_video(seconds), "seconds": seconds}
 
 
 @app.post("/api/products/{slug}/video", dependencies=[Depends(require_auth)])
@@ -335,7 +337,8 @@ def video(slug: str, body: dict = Body(...)):
     if not p or not appr:
         raise HTTPException(400, "need a plan and an approved avatar image")
     sb = _approved_storyboard(d, p)
-    est = costs.estimate_video(sum(c["duration_s"] for c in sb["clips"]))
+    prov = providers.get_provider()
+    est = prov.estimate_video(sum(c["duration_s"] for c in sb["clips"]))
     if float(body.get("confirm_usd", 0)) < est:
         raise HTTPException(400, f"confirm the estimated cost (${est:.2f})")
     spec, listing = load_spec(slug), listing_images(slug)
@@ -344,7 +347,7 @@ def video(slug: str, body: dict = Body(...)):
     def run():
         costs.guard(est)
         shutil.rmtree(d / "clips", ignore_errors=True)  # clips from a previous storyboard must not linger
-        clips = [fal_gen.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"],
+        clips = [prov.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"],
                                        d / "clips" / f"clip_{c['index']:02d}.mp4") for c in sb["clips"]]
         final = fal_gen.join_clips(clips, d / "final.mp4")
         rep = qa.run_video_qa(spec, listing, final, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")),

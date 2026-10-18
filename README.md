@@ -27,6 +27,27 @@ generate avatar images (each is checked before you spend on video), approve one,
 the QA report. Every paid step shows an estimated cost and asks first; `UGC_DAILY_CAP_USD` (default 15) stops spend.
 You can also check a video made elsewhere (for example in Flow) with "Check this video".
 
+## Providers: fal or deAPI
+
+`UGC_PROVIDER=fal` (default) or `UGC_PROVIDER=deapi`. deAPI gives $5 of free credit on signup (no card), which
+is enough to try the pipeline.
+
+```bash
+export UGC_PROVIDER=deapi DEAPI_API_KEY=...
+python -m ugc deapi-models     # lists image-edit and image-to-video models with their limits
+```
+
+The app picks a model automatically (an image-edit model that accepts several reference images, and an LTX
+video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`. Size comes from
+`UGC_DEAPI_SIZE` (default 576x1024) and is clamped to each model's limits. Notes:
+
+- Model limits are read live from deAPI. If a model caps clip length below the plan (for example about 5 s),
+  the clip is shorter than planned and a message is printed; the join still works.
+- Costs are quoted with deAPI's price endpoints and treated as USD; the daily cap still applies.
+- Basic accounts have small limits (some models 3 requests/minute, status and price calls 200/day), so the app
+  caches quotes and polls every 8 s (`UGC_DEAPI_POLL_S`). Any top-up moves the account to Premium limits.
+- Check deAPI's terms for commercial use before posting results; I could not see them.
+
 ## Manual mode (no generation spend)
 
 Make the images and clips in tools you already use and let the app do the planning and checking:

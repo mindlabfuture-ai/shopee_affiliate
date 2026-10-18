@@ -38,6 +38,20 @@ def cmd_qa(a) -> int:
     return {"pass": 0, "warn": 1 if a.strict else 0, "fail": 1}[report.overall]
 
 
+def cmd_deapi_models(a) -> int:
+    from .providers.deapi import DeapiProvider
+    prov = DeapiProvider()
+    for kind in ("img2img", "img2video"):
+        print(f"== {kind}")
+        for m in prov.models(kind):
+            lim = (m.get("info") or {}).get("limits") or {}
+            keys = ("min_width", "max_width", "min_height", "max_height", "min_frames", "max_frames", "max_input_images")
+            print(f"  {m['slug']}  [{m.get('status')}, tags={m.get('tags')}]  " +
+                  " ".join(f"{k}={lim[k]}" for k in keys if k in lim))
+    print("\nPin one with UGC_DEAPI_IMAGE_MODEL / UGC_DEAPI_VIDEO_MODEL; otherwise the app picks automatically.")
+    return 0
+
+
 def cmd_serve(a) -> int:
     import uvicorn
     uvicorn.run("app.server:app", host=a.host, port=a.port, reload=False)
@@ -59,6 +73,8 @@ def main(argv=None) -> int:
     s.add_argument("--strict", action="store_true", help="exit 1 on warnings")
     s.add_argument("--out")
     s.set_defaults(fn=cmd_qa)
+    s = sub.add_parser("deapi-models", help="list deAPI image-edit and image-to-video models with limits")
+    s.set_defaults(fn=cmd_deapi_models)
     s = sub.add_parser("serve", help="run the local web app")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)

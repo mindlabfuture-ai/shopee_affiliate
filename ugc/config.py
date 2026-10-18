@@ -9,6 +9,15 @@ DATA_DIR = Path(os.environ.get("UGC_DATA_DIR", ROOT / "data"))
 
 CLAUDE_MODEL = os.environ.get("UGC_CLAUDE_MODEL", "claude-sonnet-5-5")
 
+PROVIDER = os.environ.get("UGC_PROVIDER", "fal")  # "fal" or "deapi"
+
+# deAPI (https://docs.deapi.ai). Model slugs are discovered from /api/v2/models unless pinned here;
+# run `python -m ugc deapi-models` to list them with their limits.
+DEAPI_IMAGE_MODEL = os.environ.get("UGC_DEAPI_IMAGE_MODEL", "")
+DEAPI_VIDEO_MODEL = os.environ.get("UGC_DEAPI_VIDEO_MODEL", "")
+DEAPI_SIZE = os.environ.get("UGC_DEAPI_SIZE", "576x1024")  # WxH, 9:16; clamped to each model's limits
+DEAPI_POLL_S = float(os.environ.get("UGC_DEAPI_POLL_S", "8"))  # Basic accounts allow only 200 status calls/day
+
 # Lean stack. fal says the Veo 3.1 Lite endpoint is deprecated on 2026-11-17; swap via env, no code change.
 IMAGE_ENDPOINT = os.environ.get("UGC_IMAGE_ENDPOINT", "fal-ai/nano-banana/edit")
 VIDEO_ENDPOINT = os.environ.get("UGC_VIDEO_ENDPOINT", "fal-ai/veo3.1/lite/image-to-video")

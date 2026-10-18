@@ -80,3 +80,7 @@ Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `
 - Not yet verified live: real fal generation and real Claude calls (no keys in the build session). Tests mock both.
 - Possible later: deploy API on Railway and UI on Netlify (see earlier cost estimate); not needed for local use.
 - Manual mode: `/avatar/upload` (stills from ChatGPT, QA'd like generated ones) and `/clips/upload` (clips from Flow: joined in name order, scaled to the first clip, audio stripped, QA'd). Works without FAL_KEY.
+- Providers: `ugc/providers/` (`fal`, `deapi`), chosen by `UGC_PROVIDER`. deAPI = API v2 (docs.deapi.ai): multipart POST ->
+  `data.request_id` -> poll `/api/v2/jobs/{id}` -> `result_url`; auth `Authorization: Bearer $DEAPI_API_KEY`; limits and model
+  slugs come live from `/api/v2/models`; `python -m ugc deapi-models` lists them. Built against the docs and a fake of the API in
+  `tests/test_deapi.py`; not yet run against the real service. Never send the key to the `result_url` host (tested).

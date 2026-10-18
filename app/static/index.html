@@ -180,11 +180,10 @@ async function guarded(btn, msgEl, fn) {
 async function boot() {
   $("#app").classList.remove("hidden");
   const s = await api("/api/state");
-  $("#status").textContent = `Today ~$${s.spent_today.toFixed(2)} of $${s.cap.toFixed(2)} cap · ${s.config.video.split("/").slice(1).join("/")} @ ${s.config.resolution} · ${s.config.claude}`;
-  const missing = Object.entries(s.keys).filter(([, v]) => !v).map(([k]) => k.toUpperCase());
+  $("#status").textContent = `Today ~$${s.spent_today.toFixed(2)} of $${s.cap.toFixed(2)} cap · ${s.config.provider}: ${s.config.video.split("/").slice(-2).join("/")} @ ${s.config.resolution} · ${s.config.claude}`;
   const kw = $("#keyWarn");
-  kw.classList.toggle("hidden", !missing.length);
-  kw.textContent = missing.length ? `Missing API key(s): ${missing.join(", ")}. Set them in your shell before starting the app.` + (missing.includes("FAL") ? " Manual uploads work without FAL_KEY." : "") : "";
+  kw.classList.toggle("hidden", !s.missing.length);
+  kw.textContent = s.missing.length ? `Missing: ${s.missing.join(", ")}. Set them in your shell before starting the app.` + (!s.generation_ready ? " Manual uploads work without the generation key." : "") : "";
   const sel = $("#productSelect");
   sel.innerHTML = s.products.map((p) => `<option ${p === slug ? "selected" : ""}>${esc(p)}</option>`).join("") || "<option value=''>(none yet)</option>";
   if (!slug && s.products.length) slug = s.products[0];
