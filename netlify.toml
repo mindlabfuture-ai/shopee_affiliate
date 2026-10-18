@@ -10,6 +10,12 @@
   force = true
 
 [[redirects]]
+  from = "/avatar-files/*"
+  to = "https://ugc-api-production.up.railway.app/avatar-files/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/files/*"
   to = "https://ugc-api-production.up.railway.app/files/:splat"
   status = 200
