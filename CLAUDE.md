@@ -62,3 +62,32 @@ fal has an official MCP server for running models (generation): https://fal.ai/d
 - Docs-only server (no model runs): https://fal.ai/docs/mcp
 - For the production pipeline use the fal API/SDK with an API key from env vars
   (never commit keys). MCP is for interactive exploration and prototyping.
+
+## Code in this repo (UGC Studio)
+
+Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `python -m pytest`.
+
+- `ugc/rules.py` encodes the compliance rules above; keep it in sync with this file.
+- `ugc/planner.py`: Claude Sonnet plans 3-4 distinct outdoor storyboards (lint enforces >=3, different locations, all required shots); each has its own avatar still prompt + clips. Avatar files are named avatar_s<storyboard>_NN.png and the approved one decides which clips are generated. **Code**, not the model, prepends the garment-lock clause,
+  forces `generate_audio: false`, 9:16, clip lengths of 4/6/8 s, and lints for alteration verbs, speech/audio and
+  risky caption words (revises up to twice).
+- `ugc/qa/`: technical (ffmpeg), color (CIELAB), vision (Claude). `python -m ugc qa <product> <video|image>`.
+- Lean stack, configurable by env: `UGC_IMAGE_ENDPOINT` (fal-ai/nano-banana/edit), `UGC_VIDEO_ENDPOINT`
+  (fal-ai/veo3.1/lite/image-to-video, **deprecated by fal on 2026-11-17**), `UGC_VIDEO_RESOLUTION` (720p).
+- Cost rates in `ugc/config.py` are estimates from third-party pages, not fal's live prices. Daily cap `UGC_DAILY_CAP_USD`.
+- Avatar image is QA'd before any video is generated (cheap gate). Videos are silent; music is added in TikTok.
+- Secrets only via env vars (ANTHROPIC_API_KEY, FAL_KEY, APP_PASSWORD). Never commit them or `data/`.
+- Not yet verified live: real fal generation and real Claude calls (no keys in the build session). Tests mock both.
+- Possible later: deploy API on Railway and UI on Netlify (see earlier cost estimate); not needed for local use.
+- Manual mode: `/avatar/upload` (stills from ChatGPT, QA'd like generated ones) and `/clips/upload` (clips from Flow: joined in name order, scaled to the first clip, audio stripped, QA'd). Works without FAL_KEY.
+- Providers: `ugc/providers/` (`fal`, `deapi`), chosen by `UGC_PROVIDER`. deAPI = API v2 (docs.deapi.ai): multipart POST ->
+  `data.request_id` -> poll `/api/v2/jobs/{id}` -> `result_url`; auth `Authorization: Bearer $DEAPI_API_KEY`; limits and model
+  slugs come live from `/api/v2/models`; `python -m ugc deapi-models` lists them. Built against the docs and a fake of the API in
+  `tests/test_deapi.py`; not yet run against the real service. Never send the key to the `result_url` host (tested).
+- Deployed 2026-10-18 (accounts: Railway user mindlabfuture-ai, Netlify mindlabfutureai@gmail.com): Railway project
+  bfb3b1cb-877b-4741-b4fb-18e5dba3413c / service ugc-api fba2eafe-7708-4afe-905b-8ba665f8bde3 / volume /data;
+  Netlify site 8cce25f7-6f7f-4485-8bbf-2c1228335c4a (ugc-studio-mindlab). The app is locked (503) until APP_PASSWORD is
+  set on Railway. If the Railway domain changes, update the two proxy targets in netlify.toml and redeploy Netlify.
+- Permanent avatar: `ugc/avatar.py`, endpoints `/api/avatar*`, files under `data/avatar/` (base.png, sheet/<view>.png + .json check, history/). Product shoots use `avatar.reference_files()` as identity references (provider `avatar_ref` may be a list). Face-lock wording lives in `avatar.FACE_LOCK`; views are made front first, then closeup/left/right with base+front as references.
+- Storyboards are continuous takes: ClipPlan has action/camera/start_state/end_state (libraries in `ugc/rules.py`: ACTIONS, CAMERA_MOVES); lint enforces >=3 distinct actions, walk at most once, no repeated consecutive action, and start_state == previous end_state. `clip_prompt()` builds the hand-off wording. `server.video()` chains clips (clip N starts from `media.last_frame` of clip N-1), resumes from finished clips, and discards cached clips when the plan changes (manifest fingerprint). `UGC_CLIP_SECONDS` / `UGC_MAX_CLIP_S` set allowed clip lengths. Reference-image mode for Seedance is not built (untested on the live model).
+- Motion reference (`ugc/motion.py`): a <=30 s clip is analyzed by Claude into a text motion script (beats: action/camera/start/end; never the person, clothes or place) saved to `data/products/<slug>/reference/motion.json`; `planner.make_plan(reference=...)` makes storyboards copy it (target length = reference duration, variety lint becomes warnings, continuity stays an error). No pixels of the reference reach a generator. Not built: sending the clip as a reference video to models that accept one (deAPI MiniMax H3 / Seedance `ref_videos`, x3 price): it would leak the other person's look; revisit after the first live test.

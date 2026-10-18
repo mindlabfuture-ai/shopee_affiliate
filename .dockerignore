@@ -1,0 +1,8 @@
+.git
+data
+tests
+examples
+__pycache__
+*.pyc
+.pytest_cache
+*.mp4

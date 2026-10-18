@@ -1,0 +1,48 @@
+{
+  "slug": "red-backless-slip-dress",
+  "name": "red backless slip dress",
+  "category": "dress",
+  "colorway": "deep red",
+  "color_hex": null,
+  "length": "ankle-length maxi",
+  "fabric": "",
+  "features": [
+    {
+      "name": "neckline",
+      "description": "gathered scoop neckline sitting high on the chest",
+      "show_in_video": true
+    },
+    {
+      "name": "straps",
+      "description": "thin spaghetti straps",
+      "show_in_video": true
+    },
+    {
+      "name": "back",
+      "description": "deep V open back",
+      "show_in_video": true
+    },
+    {
+      "name": "cut",
+      "description": "loose straight A-line fall",
+      "show_in_video": true
+    },
+    {
+      "name": "pockets",
+      "description": "side pockets",
+      "show_in_video": false
+    }
+  ],
+  "required_shots": [
+    "front",
+    "back",
+    "full_length"
+  ],
+  "avoid": [],
+  "setting_ideas": [],
+  "hook_ideas": [],
+  "language": "Taglish",
+  "target_duration_s": 10,
+  "notes": "Features read from phone screenshots of the listing. Verify against the original photos and set color_hex.",
+  "listing_url": null
+}

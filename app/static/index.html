@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UGC Studio</title>
+<style>
+  :root {
+    --bg: #faf8f6; --card: #ffffff; --ink: #1f1a17; --muted: #6b625b; --line: #e6dfd8;
+    --accent: #a8322f; --accent-ink: #ffffff; --ok: #2c7a4b; --warn: #a86a00; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171412; --card: #211d1a; --ink: #f1ebe5; --muted: #a39a92; --line: #3a332e;
+            --accent: #e0645f; --accent-ink: #1a0f0e; --ok: #5cc287; --warn: #e0a845; --bad: #ef7a72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  header { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
+  input, textarea, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 84px; resize: vertical; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card);
+           color: var(--ink); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .thumbs figure { margin: 0; width: 150px; }
+  .thumbs img, .thumbs video { width: 150px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .thumbs figcaption { font-size: 12px; color: var(--muted); }
+  .sel img { outline: 3px solid var(--accent); }
+  #plan pre { cursor: copy; }
+  pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: 10px; font-size: 13px; margin: 6px 0; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; }
+  .pass { color: var(--ok); } .warn { color: var(--warn); } .fail, .error { color: var(--bad); }
+  .info, .skip { color: var(--muted); }
+  .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; font-size: 13px; }
+  .hidden { display: none !important; }
+  button.danger { color: var(--bad); border-color: var(--bad); }
+  label.up { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 14px; margin: 0; color: var(--ink); }
+  .slot { width: 150px; height: 266px; border: 1px dashed var(--line); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+  #sheetPrompts pre { cursor: copy; }
+  a.dl { display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600; }
+  #clipLinks a { color: var(--accent); }
+  #login { max-width: 360px; margin: 14vh auto; padding: 0 16px; }
+  label.show { display: flex; gap: 8px; align-items: center; margin-top: 10px; cursor: pointer; }
+  label.show input { width: auto; }
+  #loginBtn { min-height: 44px; min-width: 110px; }
+  #pw { font-size: 18px; padding: 12px; }
+  .note { color: var(--muted); font-size: 13px; }
+  .errbox { padding: 10px 14px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); background: var(--card); font-size: 14px; display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
+  .banner { padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px dashed var(--warn); color: var(--warn); font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="login" class="hidden">
+  <section>
+    <h2>UGC Studio</h2>
+    <form id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="ugc-studio" autocomplete="username" hidden>
+      <label for="pw">Password</label>
+      <input id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="off"
+             autocorrect="off" spellcheck="false" enterkeyhint="go" inputmode="text">
+      <label class="show"><input type="checkbox" id="showPw"> Show what I type</label>
+      <div class="actions"><button class="primary" id="loginBtn" type="submit">Sign in</button><span id="loginErr" class="fail"></span></div>
+    </form>
+  </section>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <h1>UGC Studio</h1>
+  <div class="meta" id="status"></div>
+</header>
+<main>
+  <div id="keyWarn" class="banner hidden"></div>
+  <div id="errBox" class="errbox hidden"><span id="errText"></span> <button id="errClose" type="button">Dismiss</button></div>
+
+  <section id="avatarSec">
+    <h2>Permanent avatar <span class="note">one photo, four views, the same face. Every shoot uses it.</span></h2>
+    <div class="row">
+      <div><label>Base photo (your own AI-generated character, not a photo of a real person)</label>
+        <input type="file" id="avBase" accept="image/*"></div>
+      <div><label>Hairstyle (empty keeps her hair exactly as in the photo; the face never changes)</label>
+        <input id="avHair" placeholder="long sleek straight black hair with a soft side part"></div>
+    </div>
+    <div class="actions"><button id="avBaseBtn">Upload photo</button>
+      <button class="primary" id="sheetBtn">Make all 4 views</button>
+      <button id="sheetMissing">Make missing views only</button>
+      <button id="clearAv" class="danger">Clear avatar</button><span class="note" id="sheetCost"></span></div>
+    <div class="thumbs" id="avBaseBox"></div>
+    <div class="thumbs" id="sheet"></div>
+    <details><summary class="note">Prefer to make them in ChatGPT? Click a prompt to copy it (attach your base photo)</summary><div id="sheetPrompts"></div></details>
+  </section>
+
+  <section>
+    <h2>Products</h2>
+    <div class="row">
+      <select id="productSelect"></select>
+      <div class="actions" style="margin:0"><button id="newBtn">New product</button></div>
+    </div>
+  </section>
+
+  <section id="newForm" class="hidden">
+    <h2>New product</h2>
+    <form id="productForm">
+      <div class="row">
+        <div><label>Name *</label><input name="name" required placeholder="red backless slip dress"></div>
+        <div><label>Colorway *</label><input name="colorway" required placeholder="deep red"></div>
+        <div><label>Exact color hex (recommended)</label><input name="color_hex" placeholder="#b32d2f"></div>
+      </div>
+      <div class="row">
+        <div><label>Length</label><input name="length" placeholder="ankle-length maxi"></div>
+        <div><label>Fabric</label><input name="fabric" placeholder="cotton blend"></div>
+        <div><label>Required shots</label><input name="required_shots" value="front,back,full_length"></div>
+      </div>
+      <label>Key features, one per line as "name: description"</label>
+      <textarea name="features" placeholder="neckline: gathered scoop sitting high on the chest&#10;back: deep V open back"></textarea>
+      <label>Never show (comma separated)</label><input name="avoid" placeholder="sheer lining">
+      <label>Listing photos (the real product, original resolution)</label>
+      <input name="photos" type="file" accept="image/*" multiple>
+      <div class="actions"><button class="primary" type="submit">Save product</button></div>
+    </form>
+  </section>
+
+  <div id="workspace" class="hidden">
+    <section>
+      <h2>1. Listing photos <span class="note">the garment truth every check is measured against</span></h2>
+      <div class="thumbs" id="listing"></div>
+      <div class="actions"><input type="file" id="morePhotos" accept="image/*" multiple style="width:auto"><button id="addPhotos">Add photos</button></div>
+    </section>
+
+    <section>
+      <h2>2. Plan <span class="note">Claude writes the prompts; the garment lock is added by code</span></h2>
+      <div class="note" style="margin-top:8px"><strong>Optional: copy a motion.</strong> Upload a short clip (up to 30 s, yours to use). Claude writes down only the
+        moves and camera, never the person, clothes or place, and the storyboards make your avatar copy them.</div>
+      <div class="actions"><input type="file" id="refFile" accept="video/*" style="width:auto"><button id="refBtn">Upload and analyze</button>
+        <button id="refRemove" class="danger hidden">Remove reference</button><span class="note" id="refMsg"></span></div>
+      <div id="refBox"></div>
+      <div class="actions"><button class="primary" id="planBtn">Generate plan</button><span class="note" id="planMsg"></span></div>
+      <div id="plan"></div>
+    </section>
+
+    <section>
+      <h2>3. Avatar image <span class="note">checked against the listing before any video is made</span></h2>
+      <div class="actions">
+        <label style="margin:0">Storyboard</label><select id="sbSel" style="width:auto;max-width:100%"></select>
+        <label style="margin:0">Images</label><select id="avN" style="width:auto"><option>1</option><option selected>2</option><option>3</option></select>
+        <button class="primary" id="avBtn">Generate</button><span class="note" id="avCost"></span>
+      </div>
+      <div class="actions"><span class="note">Made the images elsewhere (e.g. ChatGPT) with the storyboard prompt? Upload them for the same check:</span>
+        <input type="file" id="avUp" accept="image/*" multiple style="width:auto"><button id="avUpBtn">Upload and check</button><span class="note" id="avUpMsg"></span></div>
+      <div class="thumbs" id="avatars"></div>
+    </section>
+
+    <section>
+      <h2>4. Video <span class="note">silent clips from the approved avatar, joined with audio stripped</span></h2>
+      <div class="actions"><button class="primary" id="vidBtn">Generate video</button><span class="note" id="vidCost"></span></div>
+      <div class="actions"><span class="note">Made the clips elsewhere (e.g. Flow)? Pick them all; they are joined in file-name order (clip1, clip2, ...), audio stripped, then checked:</span>
+        <input type="file" id="clipUp" accept="video/*" multiple style="width:auto"><button id="clipUpBtn">Join and check</button><span class="note" id="clipUpMsg"></span></div>
+      <div class="thumbs" id="final"></div>
+      <div class="note" id="clipLinks"></div>
+    </section>
+
+    <section>
+      <h2>5. QA report</h2>
+      <div id="qa"><span class="note">No report yet. Generate a video, or check one made elsewhere:</span></div>
+      <div class="actions"><input type="file" id="qaFile" accept="video/*" style="width:auto"><button id="qaBtn">Check this video</button></div>
+      <div id="checklist"></div>
+    </section>
+  </div>
+</main>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let slug = null, product = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { showLogin(); throw new Error("login required"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+const post = (p, b) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b ?? {}) });
+
+function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); setTimeout(() => $("#pw").focus(), 50); }
+async function login() {
+  $("#loginErr").textContent = "";
+  // not api(): that helper turns every 401 into "login required" and would hide the server's message
+  const r = await fetch("/api/login", { method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("#pw").value }) });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { $("#loginErr").textContent = body.detail || "Could not sign in."; $("#pw").focus(); $("#pw").select(); return; }
+  $("#pw").value = ""; $("#login").classList.add("hidden");
+  boot().catch(() => {});
+}
+
+async function waitJob(id, msgEl) {
+  for (;;) {
+    const j = await api("/api/jobs/" + id);
+    if (j.status === "done") return j.result;
+    if (j.status === "error") throw new Error(j.error);
+    if (msgEl) msgEl.textContent = "working…";
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+function showError(msg) { $("#errText").textContent = msg; $("#errBox").classList.remove("hidden"); }
+async function guarded(btn, msgEl, fn) {
+  btn.disabled = true; $("#errBox").classList.add("hidden");
+  try { await fn(); }
+  catch (e) { if (msgEl) msgEl.textContent = ""; showError(e.message); }
+  finally { btn.disabled = false; await loadAvatar(); if (slug) await refresh(); }
+}
+
+async function boot() {
+  $("#app").classList.remove("hidden");
+  const s = await api("/api/state");
+  $("#status").textContent = `Today ~$${s.spent_today.toFixed(2)} of $${s.cap.toFixed(2)} cap · ${s.config.provider}: ${s.config.video.split("/").slice(-2).join("/")} @ ${s.config.resolution} · ${s.config.claude}`;
+  const kw = $("#keyWarn");
+  kw.classList.toggle("hidden", !s.missing.length);
+  kw.textContent = s.missing.length ? `Missing: ${s.missing.join(", ")}. Set them in your shell before starting the app.` + (!s.generation_ready ? " Manual uploads work without the generation key." : "") : "";
+  const sel = $("#productSelect");
+  sel.innerHTML = s.products.map((p) => `<option ${p === slug ? "selected" : ""}>${esc(p)}</option>`).join("") || "<option value=''>(none yet)</option>";
+  if (!slug && s.products.length) slug = s.products[0];
+  slug = sel.value || slug;
+  await loadAvatar();
+  if (slug) await refresh(); else $("#workspace").classList.add("hidden");
+}
+
+function badge(st) { return `<span class="pill ${st}">${st}</span>`; }
+function renderReport(r) {
+  if (!r) return "";
+  if (r.overall === "error") return `<div class="check">${badge("error")} ${esc(r.error)}</div>`;
+  return `<div class="check"><strong>Overall</strong> ${badge(r.overall)}</div>` +
+    r.checks.map((c) => `<div class="check">${badge(c.status)} <span><strong>${esc(c.name)}</strong> ${esc(c.detail)}</span></div>`).join("");
+}
+
+async function refresh() {
+  if (!slug) return;
+  product = await api("/api/products/" + slug);
+  $("#workspace").classList.remove("hidden");
+  $("#listing").innerHTML = product.listing.map((u) => `<figure><img src="${u}"></figure>`).join("") || '<span class="note">No photos yet.</span>';
+  const p = product.plan;
+  const ref = product.reference && product.reference.motion;
+  $("#refRemove").classList.toggle("hidden", !ref);
+  $("#planBtn").textContent = ref ? "Generate plan (copies the reference)" : "Generate plan";
+  $("#refBox").innerHTML = ref ? `<div class="thumbs"><figure><video src="${product.reference.url}" controls muted style="width:150px"></video><figcaption>reference</figcaption></figure>
+    <div style="flex:1;min-width:240px"><div class="note">${esc(ref.duration_s)} s · pacing: ${esc(ref.pacing)} · camera: ${esc(ref.camera_summary)}</div>
+    ${ref.beats.map((b, i) => `<div class="check"><span class="pill info">${b.start_s.toFixed(1)}-${b.end_s.toFixed(1)}s</span><span><strong>${esc(b.action)}</strong> ${esc(b.action_detail)} <span class="note">· camera: ${esc(b.camera)}</span></span></div>`).join("")}
+    ${ref.notes ? `<div class="note">${esc(ref.notes)}</div>` : ""}</div></div>` : "";
+  const prevSb = $("#sbSel").value;
+  $("#sbSel").innerHTML = p ? p.storyboards.map((s) => `<option value="${s.index}">${s.index + 1}. ${esc(s.title)} · ${esc(s.location)}</option>`).join("") : "";
+  if (prevSb) $("#sbSel").value = prevSb;
+  $("#plan").innerHTML = !p ? "" :
+    (p.reference_used ? '<div class="note">This plan copies your motion reference.</div>' : "") +
+    p.storyboards.map((s) => `<details ${s.index === 0 ? "open" : ""}><summary><strong>Storyboard ${s.index + 1}: ${esc(s.title)}</strong> <span class="note">${esc(s.location)} · ${esc(s.time_of_day)} · ${esc(s.mood)}</span></summary>` +
+      `<div class="note">Avatar still prompt</div><pre>${esc(s.avatar_image.prompt)}</pre>` +
+      (s.arc ? `<div class="note">Arc: ${esc(s.arc)}</div>` : "") +
+      s.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.action || "")}${c.camera ? " · camera: " + esc(c.camera) : ""} · ${esc(c.shots.join(", "))}</strong>` +
+        (c.start_state ? `<div class="note">starts: ${esc(c.start_state)}${c.chained ? " (from the previous clip's last frame)" : ""}<br>ends: ${esc(c.end_state)}</div>` : "") +
+        `<pre>${esc(c.prompt)}</pre>`).join("") + `</details>`).join("") +
+    `<strong>Hooks</strong><pre>${esc(p.hook_captions.join("\n"))}</pre><strong>TikTok caption</strong><pre>${esc(p.tiktok_caption)}</pre>` +
+    `<strong>Shopee caption</strong><pre>${esc(p.shopee_caption)}</pre>` +
+    (p.risks.length ? `<strong>Risks</strong><pre>${esc(p.risks.join("\n"))}</pre>` : "") +
+    (p.lint.length ? p.lint.map((l) => `<div class="check">${badge(l.level === "error" ? "fail" : "warn")} ${esc(l.msg)}</div>`).join("") : `<div class="check">${badge("pass")} lint clean</div>`);
+  const sbTitle = (name) => { const m = /avatar_s(\d+)_/.exec(name); const s = m && p && p.storyboards[+m[1]]; return s ? s.title : ""; };
+  $("#avatars").innerHTML = product.avatars.map((a) =>
+    `<figure class="${a.name === product.approved_avatar ? "sel" : ""}"><img src="${a.url}">
+     <figcaption>${a.qa ? badge(a.qa.overall) : ""} ${esc(sbTitle(a.name) || a.name)}</figcaption>
+     <button data-approve="${esc(a.name)}">${a.name === product.approved_avatar ? "Approved" : "Approve"}</button></figure>`).join("");
+  $("#final").innerHTML = product.final ? `<figure><video src="${product.final}?t=${Date.now()}" controls style="width:220px"></video><figcaption>final video (silent). A new render replaces it.</figcaption><a class="dl" href="${product.final}" download="${esc(slug)}.mp4">Download video</a></figure>` : "";
+  $("#clipLinks").innerHTML = product.clips.length ? "Individual clips: " + product.clips.map((u, i) => `<a href="${u}" download="${esc(slug)}-clip${i + 1}.mp4">clip ${i + 1}</a>`).join(" · ") : "";
+  if (product.last_error && $("#errBox").classList.contains("hidden")) showError(`Last attempt failed (${product.last_error.label}, ${product.last_error.at}): ${product.last_error.error}`);
+  $("#qa").innerHTML = product.video_qa ? renderReport(product.video_qa) : '<span class="note">No report yet. Generate a video, or check one made elsewhere:</span>';
+  if (product.plan) $("#checklist").innerHTML = "<strong>Before you post</strong><pre>" + esc(product.plan.disclosure_checklist.join("\n")) + "</pre>";
+  const a = await post(`/api/products/${slug}/avatar/estimate`, { n: +$("#avN").value });
+  $("#avCost").textContent = `≈ $${a.usd.toFixed(2)}`;
+  if (product.plan) { const v = await post(`/api/products/${slug}/video/estimate`); $("#vidCost").textContent = `≈ $${v.usd.toFixed(2)} for ${v.seconds}s`; }
+  const s = await api("/api/state");
+  $("#status").textContent = $("#status").textContent.replace(/Today ~\$[\d.]+/, `Today ~$${s.spent_today.toFixed(2)}`);
+}
+
+$("#errClose").onclick = () => $("#errBox").classList.add("hidden");
+$("#loginForm").onsubmit = (e) => { e.preventDefault(); login(); };
+$("#showPw").onchange = (e) => { $("#pw").type = e.target.checked ? "text" : "password"; $("#pw").focus(); };
+$("#newBtn").onclick = () => $("#newForm").classList.toggle("hidden");
+$("#productSelect").onchange = (e) => { slug = e.target.value; refresh(); };
+$("#avN").onchange = () => refresh();
+$("#productForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api("/api/products", { method: "POST", body: new FormData(e.target) });
+    slug = r.slug; e.target.reset(); $("#newForm").classList.add("hidden"); boot();
+  } catch (err) { alert(err.message); }
+};
+$("#addPhotos").onclick = async () => {
+  const fd = new FormData(); [...$("#morePhotos").files].forEach((f) => fd.append("photos", f));
+  if (!fd.has("photos")) return;
+  await api(`/api/products/${slug}/photos`, { method: "POST", body: fd }); $("#morePhotos").value = ""; refresh();
+};
+$("#planBtn").onclick = (e) => guarded(e.target, $("#planMsg"), async () => {
+  $("#planMsg").textContent = "working…"; const { job } = await post(`/api/products/${slug}/plan`); await waitJob(job, $("#planMsg")); $("#planMsg").textContent = "";
+});
+$("#avBtn").onclick = (e) => guarded(e.target, $("#avCost"), async () => {
+  const n = +$("#avN").value, est = (await post(`/api/products/${slug}/avatar/estimate`, { n })).usd;
+  if (!confirm(`Generate ${n} avatar image(s)? Estimated cost $${est.toFixed(2)}.`)) return;
+  $("#avCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/avatar`, { n, storyboard: +$("#sbSel").value || 0, confirm_usd: est }); await waitJob(job, $("#avCost"));
+});
+$("#avatars").onclick = async (e) => { const n = e.target.dataset.approve; if (n) { await post(`/api/products/${slug}/approve`, { avatar: n }); refresh(); } };
+$("#vidBtn").onclick = (e) => guarded(e.target, $("#vidCost"), async () => {
+  const est = (await post(`/api/products/${slug}/video/estimate`)).usd;
+  if (!confirm(`Generate the video? Estimated cost $${est.toFixed(2)}.`)) return;
+  $("#vidCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/video`, { confirm_usd: est }); await waitJob(job, $("#vidCost"));
+});
+$("#qaBtn").onclick = (e) => guarded(e.target, null, async () => {
+  const f = $("#qaFile").files[0]; if (!f) return; const fd = new FormData(); fd.append("video", f);
+  const { job } = await api(`/api/products/${slug}/qa`, { method: "POST", body: fd }); $("#qa").textContent = "checking…"; await waitJob(job);
+});
+
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+$("#plan").onclick = async (e) => {
+  const pre = e.target.closest("pre"); if (!pre) return;
+  try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {}
+};
+$("#avUpBtn").onclick = (e) => guarded(e.target, $("#avUpMsg"), async () => {
+  const files = [...$("#avUp").files]; if (!files.length) return;
+  const fd = new FormData(); fd.append("storyboard", $("#sbSel").value || "0"); files.forEach((f) => fd.append("photos", f));
+  $("#avUpMsg").textContent = "working…"; const { job } = await api(`/api/products/${slug}/avatar/upload`, { method: "POST", body: fd });
+  await waitJob(job, $("#avUpMsg")); $("#avUpMsg").textContent = ""; $("#avUp").value = "";
+});
+$("#clipUpBtn").onclick = (e) => guarded(e.target, $("#clipUpMsg"), async () => {
+  const files = [...$("#clipUp").files].sort(byName); if (!files.length) return;
+  const fd = new FormData(); files.forEach((f) => fd.append("videos", f));
+  $("#clipUpMsg").textContent = "working… order: " + files.map((f) => f.name).join(" → ");
+  const { job } = await api(`/api/products/${slug}/clips/upload`, { method: "POST", body: fd });
+  await waitJob(job, null); $("#clipUpMsg").textContent = ""; $("#clipUp").value = "";
+});
+
+const VIEW_NAMES = { closeup: "Close-up", front: "Front", left: "Left", right: "Right" };
+const VERDICT = { consistent: "pass", check: "warn", drifted: "fail", unchecked: "skip", provided: "info" };
+let lastAvatar = null;
+async function loadAvatar() {
+  const a = await api("/api/avatar");
+  lastAvatar = a;
+  $("#avBaseBox").innerHTML = a.base ? `<figure><img src="${a.base}"><figcaption>base photo</figcaption></figure>` : "";
+  if (!$("#avHair").dataset.touched) $("#avHair").value = a.hairstyle ?? "";
+  $("#sheet").innerHTML = ["closeup", "front", "left", "right"].map((v) => {
+    const x = a.views[v], c = x && x.check;
+    return `<figure>${x ? `<img src="${x.url}">` : '<div class="slot">not made yet</div>'}
+      <figcaption>${VIEW_NAMES[v]} ${c ? `<span class="pill ${VERDICT[c.verdict] || "skip"}" title="${esc(c.summary)}">${esc(c.verdict)}</span>` : ""}</figcaption>
+      ${x ? `<a href="${x.url}" download="avatar-${v}.png" class="note">download</a> ` : ""}
+      <button type="button" data-view="${v}" ${a.base ? "" : "disabled"}>${x ? "Redo" : "Make"}</button>
+      <label class="up">Use mine<input type="file" accept="image/*" data-up="${v}" hidden></label>
+      ${x ? `<button type="button" data-remove="${v}" class="danger">Remove</button>` : ""}</figure>`;
+  }).join("");
+  $("#sheetPrompts").innerHTML = ["closeup", "front", "left", "right"].map((v) => `<strong>${VIEW_NAMES[v]}</strong><pre>${esc(a.prompts[v])}</pre>`).join("");
+  const e = await post("/api/avatar/sheet/estimate", {});
+  $("#sheetCost").textContent = `≈ $${e.usd.toFixed(2)} for ${e.images} images`;
+  $("#sheetBtn").disabled = !a.base;
+}
+async function makeViews(views, btn) {
+  if (!views.length) { showError("Nothing to make: all four views already exist."); return; }
+  const est = (await post("/api/avatar/sheet/estimate", { views })).usd;
+  const replacing = views.filter((v) => lastAvatar && lastAvatar.views[v]).map((v) => VIEW_NAMES[v]);
+  if (!confirm(`Generate ${views.length} image(s)? Estimated cost $${est.toFixed(2)}.` + (replacing.length ? `\nThis replaces: ${replacing.join(", ")} (the old ones go to history).` : ""))) return;
+  $("#sheetCost").textContent = "working… this takes a few minutes";
+  const { job } = await post("/api/avatar/sheet", { views, hairstyle: $("#avHair").value, confirm_usd: est });
+  await waitJob(job, $("#sheetCost"));
+}
+$("#avHair").oninput = (e) => (e.target.dataset.touched = "1");
+$("#avBaseBtn").onclick = (e) => guarded(e.target, null, async () => {
+  const f = $("#avBase").files[0]; if (!f) return; const fd = new FormData(); fd.append("photo", f);
+  await api("/api/avatar/base", { method: "POST", body: fd }); $("#avBase").value = "";
+});
+$("#sheetBtn").onclick = (e) => guarded(e.target, $("#sheetCost"), () => makeViews(["closeup", "front", "left", "right"], e.target));
+$("#sheet").onclick = (e) => {
+  const v = e.target.dataset.view, rm = e.target.dataset.remove;
+  if (v) guarded(e.target, $("#sheetCost"), () => makeViews([v], e.target));
+  if (rm && confirm(`Remove the ${VIEW_NAMES[rm]} view?`)) guarded(e.target, null, () => api(`/api/avatar/view/${rm}`, { method: "DELETE" }));
+};
+$("#sheet").onchange = (e) => {
+  const v = e.target.dataset.up, f = e.target.files && e.target.files[0]; if (!v || !f) return;
+  const fd = new FormData(); fd.append("photo", f);
+  guarded(e.target, null, () => api(`/api/avatar/view/${v}`, { method: "POST", body: fd }));
+};
+$("#sheetMissing").onclick = (e) => guarded(e.target, $("#sheetCost"), () =>
+  makeViews(["closeup", "front", "left", "right"].filter((v) => !(lastAvatar && lastAvatar.views[v])), e.target));
+$("#clearAv").onclick = (e) => {
+  if (!confirm("Delete the whole permanent avatar (base photo, all four views and their history)? This cannot be undone. Product shoot images are kept.")) return;
+  guarded(e.target, null, () => post("/api/avatar/clear", { confirm: true }));
+};
+$("#sheetPrompts").onclick = async (e) => { const pre = e.target.closest("pre"); if (pre) try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {} };
+
+$("#refBtn").onclick = (e) => guarded(e.target, $("#refMsg"), async () => {
+  const f = $("#refFile").files[0]; if (!f) return; const fd = new FormData(); fd.append("video", f);
+  $("#refMsg").textContent = "analyzing…"; const { job } = await api(`/api/products/${slug}/reference`, { method: "POST", body: fd });
+  await waitJob(job, $("#refMsg")); $("#refMsg").textContent = ""; $("#refFile").value = "";
+});
+$("#refRemove").onclick = (e) => { if (confirm("Remove the reference? Existing plans are kept; the next plan will not copy it.")) guarded(e.target, null, () => api(`/api/products/${slug}/reference`, { method: "DELETE" })); };
+
+boot().catch((e) => { if (e.message === "login required") return;
+  const kw = $("#keyWarn"); $("#app").classList.remove("hidden"); kw.classList.remove("hidden"); kw.textContent = e.message; });
+</script>
+</body>
+</html>
