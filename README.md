@@ -38,7 +38,8 @@ python -m ugc deapi-models     # lists image-edit and image-to-video models with
 ```
 
 The app picks a model automatically (an image-edit model that accepts several reference images, and an LTX
-video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`. Size comes from
+video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`, using either the slug or the name shown in the
+deAPI dashboard (for example `Seedance 2.5`; case, spaces and punctuation are ignored; an unknown name lists the choices). Size comes from
 `UGC_DEAPI_SIZE` (default 576x1024) and is clamped to each model's limits. Notes:
 
 - Model limits are read live from deAPI. If a model caps clip length below the plan (for example about 5 s),

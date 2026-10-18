@@ -20,8 +20,8 @@ MODELS = {
                              "resolution_step": 64, "max_input_images": 3}, "defaults": {}, "features": {}}},
     ],
     "img2video": [
-        {"slug": "Seedance_test", "status": "test_model", "tags": ["test"], "info": {}},
-        {"slug": "Ltx_2_3_22B", "status": "standard_model", "tags": [],
+        {"slug": "Seedance_test", "name": "Seedance 2.5", "status": "test_model", "tags": ["test"], "info": {}},
+        {"slug": "Ltx_2_3_22B", "name": "LTX-2.3 22B", "status": "standard_model", "tags": [],
          "info": {"limits": {"min_width": 256, "max_width": 1280, "min_height": 256, "max_height": 1280,
                              "min_frames": 25, "max_frames": 121, "resolution_step": 32, "max_steps": 20},
                   "defaults": {"fps": 24, "steps": 8},
@@ -290,3 +290,20 @@ def test_a_daily_limit_says_when_it_resets_and_what_to_do(tmp_path):
 def test_human_durations():
     assert DeapiProvider._human(80040) == "22 h 14 min" and DeapiProvider._human(1500) == "25 min"
     assert DeapiProvider._human(30) == "30 s" and DeapiProvider._human(3600) == "1 h 0 min"
+
+
+def test_a_pinned_model_can_be_given_as_the_dashboard_name_or_the_slug(monkeypatch):
+    for wanted in ("Seedance 2.5", "seedance-2.5", "SEEDANCE_TEST", "Seedance_test"):
+        monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", wanted)
+        assert provider(Api()).video_model()["slug"] == "Seedance_test", wanted
+    monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", "LTX-2.3 22B")
+    assert provider(Api()).video_model()["slug"] == "Ltx_2_3_22B"
+
+
+def test_an_unknown_or_ambiguous_pinned_model_lists_the_choices(monkeypatch):
+    monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", "Nonexistent 9")
+    with pytest.raises(DeapiError, match=r"not found; use one of: .*Ltx_2_3_22B \(LTX-2\.3 22B\)"):
+        provider(Api()).video_model()
+    monkeypatch.setattr(config, "DEAPI_VIDEO_MODEL", "2")  # matches both "Seedance 2.5" and "LTX-2.3 22B"
+    with pytest.raises(DeapiError, match="matches several models"):
+        provider(Api()).video_model()

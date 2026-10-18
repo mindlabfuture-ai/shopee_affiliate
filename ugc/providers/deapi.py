@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import time
 from pathlib import Path
 
@@ -116,10 +117,7 @@ class DeapiProvider:
         if not ms:
             raise DeapiError(f"no deAPI models for {inference_type}")
         if pinned:
-            match = next((m for m in ms if m["slug"] == pinned), None)
-            if not match:
-                raise DeapiError(f"model {pinned!r} not found for {inference_type}; available: "
-                                 + ", ".join(m["slug"] for m in ms))
+            match = self._match_model(ms, pinned)
             self._chosen[kind] = match
             return match
         usable = [m for m in ms if m.get("status") != "test_model" and "experimental" not in (m.get("tags") or [])] or ms
@@ -129,6 +127,22 @@ class DeapiProvider:
         pick = next((m for kw in prefer for m in usable if kw in m["slug"].lower()), usable[0])
         self._chosen[kind] = pick
         return pick
+
+    @staticmethod
+    def _match_model(ms: list[dict], wanted: str) -> dict:
+        """Find a pinned model by slug or by the display name shown in the dashboard ("Seedance 2.5"),
+        ignoring case, spaces and punctuation. An ambiguous or unknown name lists the choices."""
+        key = lambda t: re.sub(r"[^a-z0-9]", "", str(t).lower())  # noqa: E731
+        w = key(wanted)
+        for field in ("slug", "name"):
+            hits = [m for m in ms if key(m.get(field, "")) == w]
+            if len(hits) == 1:
+                return hits[0]
+        hits = [m for m in ms if w and (w in key(m["slug"]) or w in key(m.get("name", "")))]
+        if len(hits) == 1:
+            return hits[0]
+        choices = ", ".join(f"{m['slug']} ({m.get('name', '?')})" for m in (hits or ms))
+        raise DeapiError(f"model {wanted!r} " + ("matches several models" if hits else "not found") + f"; use one of: {choices}")
 
     def image_model(self) -> dict:
         return self._choose("image", "img2img", config.DEAPI_IMAGE_MODEL, PREFER_IMAGE)
