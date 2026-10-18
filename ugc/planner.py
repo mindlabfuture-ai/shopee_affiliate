@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from . import config, llm
 from .imaging import read_image, to_jpeg_b64
 from .rules import ALTER_RE, DISCLOSURE_CHECKLIST, POSES, RISKY_PHRASES, RULES_TEXT, SHOT_TAGS, VOICE_RE
+from .research.shopee import planner_context
 from .spec import ProductSpec
 
 MIN_STORYBOARDS = 3
@@ -186,12 +187,15 @@ def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
     }
 
 
-def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions: int = 2) -> dict:
+def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions: int = 2,
+              research: dict | None = None) -> dict:
     client = client or llm.get_client()
     content: list[dict] = [{"type": "text", "text": (
         "Product spec (JSON):\n" + spec.model_dump_json(indent=2) +
         "\n\nListing photos follow. Plan the outdoor fashion shoot storyboards for this outfit."
         + (f"\nWrite hooks in {spec.language}." if spec.language else ""))}]
+    if ctx := planner_context(research):
+        content.append({"type": "text", "text": ctx})
     for i, p in enumerate(listing[:6], 1):
         content += [{"type": "text", "text": f"LISTING PHOTO {i}"}, llm.image_block(to_jpeg_b64(read_image(p), 1024))]
 

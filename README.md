@@ -83,12 +83,47 @@ Make the images and clips in tools you already use and let the app do the planni
 4. Read the QA report in step 5. Only Claude calls cost money (about $0.10 per video), and manual mode works
    without `FAL_KEY`.
 
+## Market research (optional, local only)
+
+`python -m ugc research <product>` reads the top Shopee listings and buyer reviews for a search, then has Claude
+summarise them into `data/products/<slug>/research.json` (raw captures go to `research_raw.json` for the audit trail).
+The next `plan` (CLI or app) gets the useful parts as context: recurring "not as pictured" complaints, fit themes,
+truthful hook angles, and competitor claims not to copy. It is context only. Competitor photos and clips are never
+downloaded or used, and review text is never quoted as a testimonial (`CLAUDE.md` rules 2 and 5).
+
+It drives [shopee-mcp](https://github.com/bintangtimurlangit/shopee-mcp) (MIT; reviewed 2026-10-18 together with its
+`cloakbrowser` dependency) as a child process over stdio. It needs Node, a display (the browser runs headed) and a
+logged-in Shopee profile, so it works on your own machine and **not** on the Railway container.
+
+```bash
+pip install -e ".[research]"
+export UGC_SHOPEE_MCP_CMD="npx -y @bintangtimurlangit/shopee-mcp@0.3.0"   # pin the version; unset = feature off
+# log in once, by hand, into the SAME profile and region the research will use:
+SHOPEE_DOMAIN=shopee.ph SHOPEE_LOCALE=en-PH SHOPEE_TIMEZONE=Asia/Manila CLOAKBROWSER_AUTO_UPDATE=false \
+  SHOPEE_PROFILE_DIR="$HOME/.ugc-studio/shopee-profile" npx -y -p @bintangtimurlangit/shopee-mcp@0.3.0 shopee-mcp-login
+python -m ugc research red-backless-slip-dress --query "red backless slip dress" --listings 5 --reviews 3
+python -m ugc research red-backless-slip-dress --show
+```
+
+Guard rails in `ugc/research/shopee.py`: only `search_products`, `get_product_detail` and `get_product_reviews` can be
+called (cart, like, follow and voucher tools are refused in code); the server starts with `SHOPEE_ACCOUNT_TOOLS=off` and
+`CLOAKBROWSER_AUTO_UPDATE=false`; the child process gets no API keys; at most 10 listings per run with a pause between
+page loads (`UGC_SHOPEE_DELAY_S`, default 4). Settings: `UGC_SHOPEE_DOMAIN` (default `shopee.ph`), `UGC_SHOPEE_PROFILE_DIR`
+(default `~/.ugc-studio/shopee-profile`).
+
+Use a throwaway buyer account, never your affiliate login: scraping with a patched browser is against Shopee's terms
+and can get the account banned. Run it rarely, and ideally in a VM or container (the browser runs with `--no-sandbox`).
+Not verified live: shopee-mcp has no Philippines preset (the code sets `en-PH` and `Asia/Manila`, but its price labels
+fall back to IDR and the Shopee PH page layout is untested), so the summary treats symbols as unreliable and lists data
+gaps under `caveats`. Try `UGC_SHOPEE_DOMAIN=shopee.co.id` or `.my` if `.ph` returns nothing.
+
 ## CLI
 
 ```bash
 python -m ugc plan <product>                       # writes data/products/<product>/plan.json
 python -m ugc qa <product> video.mp4 [--no-vision] [--caption "..."] [--strict]
 python -m ugc qa <product> avatar.png              # image gate
+python -m ugc research <product> [--query ...]     # optional Shopee market research (see below)
 ```
 
 `examples/` has starter specs; copy one to `data/products/<slug>/product.json` and put photos in `listing/`.
