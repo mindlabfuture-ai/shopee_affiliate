@@ -275,3 +275,18 @@ def test_several_avatar_references_are_kept_up_to_the_model_limit(tmp_path, monk
     provider(api).generate_avatar_images("p", refs(tmp_path, 3), sheet, 1, tmp_path / "av", "avatar_s0")
     # limit 3: one garment photo is kept, and the first two sheet views (front, closeup) fill the rest
     assert parts(api.posts[0]).count("images[]") == 3
+
+
+def test_a_daily_limit_says_when_it_resets_and_what_to_do(tmp_path):
+    api = Api(post_failures=[(429, {"X-RateLimit-Type": "daily", "Retry-After": "80040"})])
+    with pytest.raises(DeapiError) as e:
+        provider(api).generate_avatar_images("p", refs(tmp_path, 1), None, 1, tmp_path / "av", "avatar_s0")
+    msg = str(e.value)
+    assert "rate limited (daily)" in msg and "about 22 h 14 min" in msg  # not "80040s"
+    assert "top up" in msg and "UGC_DEAPI_IMAGE_MODEL" in msg
+    assert api.post_attempts == 1  # no retries burned against the daily quota
+
+
+def test_human_durations():
+    assert DeapiProvider._human(80040) == "22 h 14 min" and DeapiProvider._human(1500) == "25 min"
+    assert DeapiProvider._human(30) == "30 s" and DeapiProvider._human(3600) == "1 h 0 min"

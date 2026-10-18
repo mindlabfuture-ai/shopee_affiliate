@@ -70,6 +70,13 @@ class DeapiProvider:
         return r
 
     @staticmethod
+    def _human(seconds: float) -> str:
+        s = int(seconds)
+        h, rem = divmod(s, 3600)
+        m = rem // 60
+        return f"{h} h {m} min" if h else f"{m} min" if m else f"{s} s"
+
+    @staticmethod
     def _explain(r: httpx.Response) -> str:
         try:
             body = r.json()
@@ -78,10 +85,20 @@ class DeapiProvider:
         detail = body.get("message") or r.text[:200]
         if body.get("errors"):
             detail += f" {body['errors']}"
-        hint = {401: "check DEAPI_API_KEY", 403: "account suspended, or this model needs a Premium account (any top-up unlocks it); pin a free one with UGC_DEAPI_VIDEO_MODEL / UGC_DEAPI_IMAGE_MODEL",
-                422: "the request does not fit this model's limits (see `python -m ugc deapi-models`)",
-                429: f"rate limited ({r.headers.get('X-RateLimit-Type', '?')}); retry after "
-                     f"{r.headers.get('Retry-After', '?')}s"}.get(r.status_code, "")
+        hint = {401: "check DEAPI_API_KEY",
+                403: "account suspended, or this model needs a Premium account (any top-up unlocks it); pin a free one "
+                     "with UGC_DEAPI_VIDEO_MODEL / UGC_DEAPI_IMAGE_MODEL",
+                422: "the request does not fit this model's limits (see `python -m ugc deapi-models`)"}.get(r.status_code, "")
+        if r.status_code == 429:
+            kind = r.headers.get("X-RateLimit-Type", "?")
+            try:
+                wait = DeapiProvider._human(float(r.headers.get("Retry-After", "")))
+            except ValueError:
+                wait = "?"
+            hint = (f"rate limited ({kind}); the limit resets in about {wait}. This is deAPI's free-account quota for this "
+                    "model: wait for the reset, top up to move to Premium limits, or choose another model with "
+                    "UGC_DEAPI_IMAGE_MODEL / UGC_DEAPI_VIDEO_MODEL" if kind == "daily"
+                    else f"rate limited ({kind}); retry in {wait}")
         return f"deAPI {r.request.method} {r.request.url.path} -> {r.status_code}: {detail}" + (f" ({hint})" if hint else "")
 
     # ---------- models ----------
