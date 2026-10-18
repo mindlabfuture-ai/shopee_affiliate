@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from . import config, llm
+from . import config, llm, motion
 from .imaging import read_image, to_jpeg_b64
 from .rules import (ACTIONS, ALTER_RE, CAMERA_MOVES, DISCLOSURE_CHECKLIST, RISKY_PHRASES, RULES_TEXT, SHOT_TAGS,
                     VOICE_RE)
@@ -102,6 +102,18 @@ Captions: truthful, matching the listing. Hooks: short ({{language}}), no exagge
 """
 
 
+REFERENCE_RULES = """\
+
+MOTION REFERENCE (supplied below). The user wants the avatar to COPY this choreography. Every storyboard must
+reproduce its beats in the same order, at the same pace and with the same camera behaviour, adapted to this outfit
+and to that storyboard's location (the places still differ). Make the clips mirror the beat timings: the clips of a
+storyboard total about the reference duration; split or merge beats to fit the allowed clip lengths. Map each beat
+to the nearest library action and camera, and put the specifics of the movement in motion_prompt. Copy only the
+movement and camera, never anything about the person, clothing or place in the reference. The continuity rules
+stay strict: one continuous take, start_state equal to the previous end_state. If the reference repeats an action
+or walks more than once, follow the reference (the variety rules are relaxed)."""
+
+
 @dataclass
 class Issue:
     level: str  # error | warn
@@ -129,16 +141,17 @@ def _norm(text: str) -> str:
     return " ".join(text.lower().split()).rstrip(".")
 
 
-def _variety_and_continuity(tag: str, sb: Storyboard) -> list[Issue]:
+def _variety_and_continuity(tag: str, sb: Storyboard, relax_variety: bool = False) -> list[Issue]:
     out: list[Issue] = []
+    variety = "warn" if relax_variety else "error"  # a motion reference may legitimately repeat or walk
     actions = [c.action for c in sb.clips]
     if len(set(actions)) < min(3, len(actions)):
-        out.append(Issue("error", f"{tag}: use at least {min(3, len(actions))} different actions, got {sorted(set(actions))}"))
+        out.append(Issue(variety, f"{tag}: use at least {min(3, len(actions))} different actions, got {sorted(set(actions))}"))
     if actions.count("walk") > 1:
-        out.append(Issue("error", f"{tag}: 'walk' may be used at most once; the video must not be just walking"))
+        out.append(Issue(variety, f"{tag}: 'walk' may be used at most once; the video must not be just walking"))
     for i in range(1, len(sb.clips)):
         if sb.clips[i].action == sb.clips[i - 1].action:
-            out.append(Issue("error", f"{tag}: clips {i} and {i + 1} repeat the action {sb.clips[i].action!r}"))
+            out.append(Issue(variety, f"{tag}: clips {i} and {i + 1} repeat the action {sb.clips[i].action!r}"))
         if _norm(sb.clips[i].start_state) != _norm(sb.clips[i - 1].end_state):
             out.append(Issue("error", f"{tag}: clip {i + 1} start_state must repeat clip {i} end_state word for word "
                                       "(each clip starts from the previous clip's last frame)"))
@@ -147,8 +160,9 @@ def _variety_and_continuity(tag: str, sb: Storyboard) -> list[Issue]:
     return out
 
 
-def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
+def lint(spec: ProductSpec, plan: PromptPlan, reference: dict | None = None) -> list[Issue]:
     issues: list[Issue] = []
+    target = round(reference["duration_s"]) if reference else spec.target_duration_s
     sbs = plan.storyboards
     if len(sbs) < MIN_STORYBOARDS:
         issues.append(Issue("error", f"need at least {MIN_STORYBOARDS} different outdoor storyboards, got {len(sbs)}"))
@@ -162,8 +176,9 @@ def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
     for n, sb in enumerate(sbs, 1):
         tag = f"storyboard {n}"
         total = sum(c.duration_s for c in sb.clips)
-        if abs(total - spec.target_duration_s) > 2:
-            issues.append(Issue("error", f"{tag}: clips total {total}s, target is {spec.target_duration_s}s (+/-2)"))
+        if abs(total - target) > 2:
+            issues.append(Issue("error", f"{tag}: clips total {total}s, target is {target}s (+/-2)"
+                                         + (" to match the motion reference" if reference else "")))
         covered = {t for c in sb.clips for t in c.shots}
         missing = [s for s in spec.required_shots if s not in covered]
         if missing:
@@ -183,7 +198,7 @@ def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
                 issues.append(Issue("error", f"{tag} clip {i}: unknown camera {c.camera!r}; use one of {sorted(CAMERA_MOVES)}"))
             if not c.start_state.strip() or not c.end_state.strip():
                 issues.append(Issue("error", f"{tag} clip {i}: start_state and end_state must both be filled in"))
-        issues += _variety_and_continuity(tag, sb)
+        issues += _variety_and_continuity(tag, sb, relax_variety=bool(reference))
         texts[f"{tag} avatar_image_prompt"] = sb.avatar_image_prompt
         texts[f"{tag} location"] = f"{sb.location} {sb.mood}"
 
@@ -217,10 +232,11 @@ def clip_prompt(lock: str, c: ClipPlan) -> str:
             "and the garment stay exactly the same throughout.")
 
 
-def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
+def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue], reference: dict | None = None) -> dict:
     lock = lock_clause(spec)
     return {
         "product": spec.slug,
+        "reference_used": bool(reference),
         "model": config.CLAUDE_MODEL,
         "garment_lock": lock,
         "storyboards": [
@@ -250,7 +266,8 @@ def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
     }
 
 
-def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions: int = 2) -> dict:
+def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions: int = 2,
+              reference: dict | None = None) -> dict:
     client = client or llm.get_client()
     content: list[dict] = [{"type": "text", "text": (
         "Product spec (JSON):\n" + spec.model_dump_json(indent=2) +
@@ -260,10 +277,12 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
         content += [{"type": "text", "text": f"LISTING PHOTO {i}"}, llm.image_block(to_jpeg_b64(read_image(p), 1024))]
 
     secs = config.allowed_clip_seconds()
-    system = (SYSTEM.replace("{language}", spec.language)
+    if reference:
+        content.append({"type": "text", "text": motion.to_prompt_block(reference)})
+    system = ((SYSTEM + (REFERENCE_RULES if reference else "")).replace("{language}", spec.language)
               .replace("{clip_seconds}", ", ".join(map(str, secs[:-1])) + (" or " if len(secs) > 1 else "") + str(secs[-1])))
     plan = llm.parse(client, PromptPlan, system, content, max_tokens=12000)
-    issues = lint(spec, plan)
+    issues = lint(spec, plan, reference)
     for _ in range(max_revisions):
         errors = [i for i in issues if i.level == "error"]
         if not errors:
@@ -271,5 +290,5 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
         feedback = ("Your previous plan violated these rules. Return a corrected full plan.\n"
                     + "\n".join(f"- {e.msg}" for e in errors) + "\n\nPrevious plan:\n" + plan.model_dump_json(indent=2))
         plan = llm.parse(client, PromptPlan, system, content + [{"type": "text", "text": feedback}], max_tokens=12000)
-        issues = lint(spec, plan)
-    return assemble(spec, plan, issues)
+        issues = lint(spec, plan, reference)
+    return assemble(spec, plan, issues, reference)

@@ -20,7 +20,7 @@ from fastapi import Body, Cookie, Depends, FastAPI, File, Form, HTTPException, R
 from fastapi.responses import FileResponse
 
 from ugc import avatar as avatar_sheet
-from ugc import config, costs, fal_gen, llm, media, planner, providers, qa
+from ugc import config, costs, fal_gen, llm, media, motion, planner, providers, qa
 from ugc.imaging import IMG_EXT
 from ugc.spec import (Feature, ProductSpec, list_slugs, listing_dir, listing_images, load_spec, product_dir,
                       read_json, save_spec, slugify, write_json)
@@ -160,6 +160,8 @@ def _state(slug: str) -> dict:
         "final": rel(d / "final.mp4") if (d / "final.mp4").exists() else None,
         "video_qa": read_json(d / "qa" / "final.json"),
         "last_error": read_json(d / "last_error.json"),
+        "reference": ({"url": rel(next((d / "reference").glob("clip.*"))), "motion": read_json(d / "reference" / "motion.json")}
+                      if (d / "reference" / "motion.json").exists() and any((d / "reference").glob("clip.*")) else None),
     }
 
 
@@ -211,12 +213,52 @@ def plan(slug: str):
         raise HTTPException(400, "upload listing photos first")
 
     def run():
-        result = planner.make_plan(spec, listing)
+        result = planner.make_plan(spec, listing, reference=read_json(product_dir(slug) / "reference" / "motion.json"))
         costs.record("claude_plan", 0.07, slug)  # rough estimate, recorded only on success
         write_json(product_dir(slug) / "plan.json", result)
         return result
 
     return {"job": start_job(f"plan {slug}", run, slug=slug)}
+
+
+# ---------- motion reference ----------
+@app.post("/api/products/{slug}/reference", dependencies=[Depends(require_auth)])
+def reference_upload(slug: str, video: UploadFile = File(...)):
+    """A short clip whose moves the avatar should copy. Claude turns it into a motion script (text only);
+    the clip's pixels never reach the video generator."""
+    load_spec(slug)
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(400, "analyzing a reference clip needs ANTHROPIC_API_KEY on the server")
+    ext = Path(video.filename or "").suffix.lower()
+    if ext not in VIDEO_EXT:
+        raise HTTPException(400, f"unsupported video type: {video.filename}")
+    data = video.file.read(motion.MAX_REF_BYTES + 1)
+    if len(data) > motion.MAX_REF_BYTES:
+        raise HTTPException(413, "the reference clip is over 100 MB")
+    rd = product_dir(slug) / "reference"
+    shutil.rmtree(rd, ignore_errors=True)
+    rd.mkdir(parents=True)
+    clip = rd / f"clip{ext}"
+    clip.write_bytes(data)
+
+    def run():
+        try:
+            ref = motion.analyze(llm.get_client(), clip)
+        except Exception:
+            shutil.rmtree(rd, ignore_errors=True)  # a clip that could not be analyzed is not kept
+            raise
+        write_json(rd / "motion.json", ref)
+        costs.record("claude_reference", 0.05, slug)  # rough estimate
+        return ref
+
+    return {"job": start_job(f"reference {slug}", run, slug=slug)}
+
+
+@app.delete("/api/products/{slug}/reference", dependencies=[Depends(require_auth)])
+def reference_remove(slug: str):
+    load_spec(slug)
+    shutil.rmtree(product_dir(slug) / "reference", ignore_errors=True)
+    return {"ok": True}
 
 
 # ---------- avatar images ----------

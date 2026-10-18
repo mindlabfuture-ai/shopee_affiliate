@@ -141,6 +141,11 @@
 
     <section>
       <h2>2. Plan <span class="note">Claude writes the prompts; the garment lock is added by code</span></h2>
+      <div class="note" style="margin-top:8px"><strong>Optional: copy a motion.</strong> Upload a short clip (up to 30 s, yours to use). Claude writes down only the
+        moves and camera, never the person, clothes or place, and the storyboards make your avatar copy them.</div>
+      <div class="actions"><input type="file" id="refFile" accept="video/*" style="width:auto"><button id="refBtn">Upload and analyze</button>
+        <button id="refRemove" class="danger hidden">Remove reference</button><span class="note" id="refMsg"></span></div>
+      <div id="refBox"></div>
       <div class="actions"><button class="primary" id="planBtn">Generate plan</button><span class="note" id="planMsg"></span></div>
       <div id="plan"></div>
     </section>
@@ -248,10 +253,18 @@ async function refresh() {
   $("#workspace").classList.remove("hidden");
   $("#listing").innerHTML = product.listing.map((u) => `<figure><img src="${u}"></figure>`).join("") || '<span class="note">No photos yet.</span>';
   const p = product.plan;
+  const ref = product.reference && product.reference.motion;
+  $("#refRemove").classList.toggle("hidden", !ref);
+  $("#planBtn").textContent = ref ? "Generate plan (copies the reference)" : "Generate plan";
+  $("#refBox").innerHTML = ref ? `<div class="thumbs"><figure><video src="${product.reference.url}" controls muted style="width:150px"></video><figcaption>reference</figcaption></figure>
+    <div style="flex:1;min-width:240px"><div class="note">${esc(ref.duration_s)} s · pacing: ${esc(ref.pacing)} · camera: ${esc(ref.camera_summary)}</div>
+    ${ref.beats.map((b, i) => `<div class="check"><span class="pill info">${b.start_s.toFixed(1)}-${b.end_s.toFixed(1)}s</span><span><strong>${esc(b.action)}</strong> ${esc(b.action_detail)} <span class="note">· camera: ${esc(b.camera)}</span></span></div>`).join("")}
+    ${ref.notes ? `<div class="note">${esc(ref.notes)}</div>` : ""}</div></div>` : "";
   const prevSb = $("#sbSel").value;
   $("#sbSel").innerHTML = p ? p.storyboards.map((s) => `<option value="${s.index}">${s.index + 1}. ${esc(s.title)} · ${esc(s.location)}</option>`).join("") : "";
   if (prevSb) $("#sbSel").value = prevSb;
   $("#plan").innerHTML = !p ? "" :
+    (p.reference_used ? '<div class="note">This plan copies your motion reference.</div>' : "") +
     p.storyboards.map((s) => `<details ${s.index === 0 ? "open" : ""}><summary><strong>Storyboard ${s.index + 1}: ${esc(s.title)}</strong> <span class="note">${esc(s.location)} · ${esc(s.time_of_day)} · ${esc(s.mood)}</span></summary>` +
       `<div class="note">Avatar still prompt</div><pre>${esc(s.avatar_image.prompt)}</pre>` +
       (s.arc ? `<div class="note">Arc: ${esc(s.arc)}</div>` : "") +
@@ -389,6 +402,13 @@ $("#clearAv").onclick = (e) => {
   guarded(e.target, null, () => post("/api/avatar/clear", { confirm: true }));
 };
 $("#sheetPrompts").onclick = async (e) => { const pre = e.target.closest("pre"); if (pre) try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {} };
+
+$("#refBtn").onclick = (e) => guarded(e.target, $("#refMsg"), async () => {
+  const f = $("#refFile").files[0]; if (!f) return; const fd = new FormData(); fd.append("video", f);
+  $("#refMsg").textContent = "analyzing…"; const { job } = await api(`/api/products/${slug}/reference`, { method: "POST", body: fd });
+  await waitJob(job, $("#refMsg")); $("#refMsg").textContent = ""; $("#refFile").value = "";
+});
+$("#refRemove").onclick = (e) => { if (confirm("Remove the reference? Existing plans are kept; the next plan will not copy it.")) guarded(e.target, null, () => api(`/api/products/${slug}/reference`, { method: "DELETE" })); };
 
 boot().catch((e) => { if (e.message === "login required") return;
   const kw = $("#keyWarn"); $("#app").classList.remove("hidden"); kw.classList.remove("hidden"); kw.textContent = e.message; });

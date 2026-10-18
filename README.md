@@ -73,6 +73,21 @@ Sonnet plans each storyboard as one continuous take, not a string of separate cl
 Chaining carries any drift forward: if the garment shifts in clip 2, clip 3 starts from the shifted frame. The QA
 report's colour stability and join checks are there to catch that; look at the end of long chains yourself.
 
+### Copy a motion from a short clip
+
+In step 2 you can upload a short reference clip (up to 30 s, 100 MB; use clips you own or may use). Claude watches
+sampled frames and writes a motion script: beats with times, the nearest action and camera move from the library,
+and start/end poses. It is told to describe only movement and camera, never the person, clothing, place, brands or
+text. **Generate plan** then makes every storyboard copy that choreography, in the same order, at the same pace and
+with the same camera behaviour, in each storyboard's own location and in your outfit. The total length follows the
+reference; the variety rules (no repeats, one walk) become warnings so the reference can repeat itself, while the
+continuity rules stay strict.
+
+Only text about movement reaches the planner: no pixels from the reference ever go to the image or video model, so
+the person and clothes in the reference cannot appear in your video. The cost is one Claude vision call (about $0.05).
+Text can only approximate motion; a model that takes a reference *video* can copy it more exactly, but it also sees
+the other person, so that mode is not built (see CLAUDE.md).
+
 ## Permanent avatar
 
 The first section of the page makes one reusable character: upload a base photo, pick a hairstyle (or clear the
