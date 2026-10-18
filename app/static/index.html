@@ -45,6 +45,8 @@
   .info, .skip { color: var(--muted); }
   .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; font-size: 13px; }
   .hidden { display: none !important; }
+  .slot { width: 150px; height: 266px; border: 1px dashed var(--line); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+  #sheetPrompts pre { cursor: copy; }
   a.dl { display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600; }
   #clipLinks a { color: var(--accent); }
   #login { max-width: 320px; margin: 18vh auto; }
@@ -71,6 +73,21 @@
 <main>
   <div id="keyWarn" class="banner hidden"></div>
   <div id="errBox" class="errbox hidden"><span id="errText"></span> <button id="errClose" type="button">Dismiss</button></div>
+
+  <section id="avatarSec">
+    <h2>Permanent avatar <span class="note">one photo, four views, the same face. Every shoot uses it.</span></h2>
+    <div class="row">
+      <div><label>Base photo (your own AI-generated character, not a photo of a real person)</label>
+        <input type="file" id="avBase" accept="image/*"></div>
+      <div><label>Hairstyle (empty keeps her hair exactly as in the photo; the face never changes)</label>
+        <input id="avHair" placeholder="long sleek straight black hair with a soft side part"></div>
+    </div>
+    <div class="actions"><button id="avBaseBtn">Upload photo</button>
+      <button class="primary" id="sheetBtn">Make all 4 views</button><span class="note" id="sheetCost"></span></div>
+    <div class="thumbs" id="avBaseBox"></div>
+    <div class="thumbs" id="sheet"></div>
+    <details><summary class="note">Prefer to make them in ChatGPT? Click a prompt to copy it (attach your base photo)</summary><div id="sheetPrompts"></div></details>
+  </section>
 
   <section>
     <h2>Products</h2>
@@ -181,7 +198,7 @@ async function guarded(btn, msgEl, fn) {
   btn.disabled = true; $("#errBox").classList.add("hidden");
   try { await fn(); }
   catch (e) { if (msgEl) msgEl.textContent = ""; showError(e.message); }
-  finally { btn.disabled = false; await refresh(); }
+  finally { btn.disabled = false; await loadAvatar(); if (slug) await refresh(); }
 }
 
 async function boot() {
@@ -195,6 +212,7 @@ async function boot() {
   sel.innerHTML = s.products.map((p) => `<option ${p === slug ? "selected" : ""}>${esc(p)}</option>`).join("") || "<option value=''>(none yet)</option>";
   if (!slug && s.products.length) slug = s.products[0];
   slug = sel.value || slug;
+  await loadAvatar();
   if (slug) await refresh(); else $("#workspace").classList.add("hidden");
 }
 
@@ -299,6 +317,40 @@ $("#clipUpBtn").onclick = (e) => guarded(e.target, $("#clipUpMsg"), async () => 
   const { job } = await api(`/api/products/${slug}/clips/upload`, { method: "POST", body: fd });
   await waitJob(job, null); $("#clipUpMsg").textContent = ""; $("#clipUp").value = "";
 });
+
+const VIEW_NAMES = { closeup: "Close-up", front: "Front", left: "Left", right: "Right" };
+const VERDICT = { consistent: "pass", check: "warn", drifted: "fail", unchecked: "skip" };
+async function loadAvatar() {
+  const a = await api("/api/avatar");
+  $("#avBaseBox").innerHTML = a.base ? `<figure><img src="${a.base}"><figcaption>base photo</figcaption></figure>` : "";
+  if (!$("#avHair").dataset.touched) $("#avHair").value = a.hairstyle ?? "";
+  $("#sheet").innerHTML = ["closeup", "front", "left", "right"].map((v) => {
+    const x = a.views[v], c = x && x.check;
+    return `<figure>${x ? `<img src="${x.url}">` : '<div class="slot">not made yet</div>'}
+      <figcaption>${VIEW_NAMES[v]} ${c ? `<span class="pill ${VERDICT[c.verdict] || "skip"}" title="${esc(c.summary)}">${esc(c.verdict)}</span>` : ""}</figcaption>
+      ${x ? `<a href="${x.url}" download="avatar-${v}.png" class="note">download</a> ` : ""}
+      <button type="button" data-view="${v}" ${a.base ? "" : "disabled"}>${x ? "Redo" : "Make"}</button></figure>`;
+  }).join("");
+  $("#sheetPrompts").innerHTML = ["closeup", "front", "left", "right"].map((v) => `<strong>${VIEW_NAMES[v]}</strong><pre>${esc(a.prompts[v])}</pre>`).join("");
+  const e = await post("/api/avatar/sheet/estimate", {});
+  $("#sheetCost").textContent = `≈ $${e.usd.toFixed(2)} for ${e.images} images`;
+  $("#sheetBtn").disabled = !a.base;
+}
+async function makeViews(views, btn) {
+  const est = (await post("/api/avatar/sheet/estimate", { views })).usd;
+  if (!confirm(`Generate ${views.length} image(s)? Estimated cost $${est.toFixed(2)}.`)) return;
+  $("#sheetCost").textContent = "working… this takes a few minutes";
+  const { job } = await post("/api/avatar/sheet", { views, hairstyle: $("#avHair").value, confirm_usd: est });
+  await waitJob(job, $("#sheetCost"));
+}
+$("#avHair").oninput = (e) => (e.target.dataset.touched = "1");
+$("#avBaseBtn").onclick = (e) => guarded(e.target, null, async () => {
+  const f = $("#avBase").files[0]; if (!f) return; const fd = new FormData(); fd.append("photo", f);
+  await api("/api/avatar/base", { method: "POST", body: fd }); $("#avBase").value = "";
+});
+$("#sheetBtn").onclick = (e) => guarded(e.target, $("#sheetCost"), () => makeViews(["closeup", "front", "left", "right"], e.target));
+$("#sheet").onclick = (e) => { const v = e.target.dataset.view; if (v) guarded(e.target, $("#sheetCost"), () => makeViews([v], e.target)); };
+$("#sheetPrompts").onclick = async (e) => { const pre = e.target.closest("pre"); if (pre) try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {} };
 
 boot().catch((e) => { if (e.message === "login required") return;
   const kw = $("#keyWarn"); $("#app").classList.remove("hidden"); kw.classList.remove("hidden"); kw.textContent = e.message; });

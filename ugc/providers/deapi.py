@@ -254,7 +254,9 @@ class DeapiProvider:
         costs.guard(self.estimate_images(n))
         p = self._image_params()
         limit = p.pop("max_images")
-        refs = list(garments)[: max(1, limit - (1 if avatar_ref else 0))] + ([avatar_ref] if avatar_ref and limit > 1 else [])
+        av = [avatar_ref] if isinstance(avatar_ref, Path) else list(avatar_ref or [])
+        n_av = min(len(av), max(limit - 1, 0))  # always keep at least one garment/base image
+        refs = list(garments)[: max(1, limit - n_av)] + av[:n_av]
         out_dir.mkdir(parents=True, exist_ok=True)
         out: list[Path] = []
         for _ in range(n):

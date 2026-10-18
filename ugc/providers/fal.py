@@ -24,7 +24,8 @@ class FalProvider:
         return costs.estimate_video(seconds)
 
     def generate_avatar_images(self, prompt, garments, avatar_ref, n, out_dir, prefix, on_image=None) -> list[Path]:
-        refs = list(garments) + ([avatar_ref] if avatar_ref else [])
+        av = [avatar_ref] if isinstance(avatar_ref, Path) else list(avatar_ref or [])
+        refs = list(garments) + av
         return fal_gen.generate_avatar_images(prompt, refs, n, out_dir, prefix=prefix, on_image=on_image)
 
     def generate_clip(self, prompt, negative_prompt, image, duration_s, out_path) -> Path:

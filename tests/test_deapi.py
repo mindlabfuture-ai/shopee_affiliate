@@ -266,3 +266,12 @@ def test_each_avatar_is_handed_back_as_soon_as_it_exists(tmp_path):
     out = provider(Api()).generate_avatar_images("p", refs(tmp_path, 1), None, 2, tmp_path / "av", "avatar_s0",
                                                  on_image=seen.append)
     assert seen == out and len(out) == 2
+
+
+def test_several_avatar_references_are_kept_up_to_the_model_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DEAPI_IMAGE_MODEL", "Nano_Banana_2")  # accepts 3 images
+    api = Api()
+    sheet = [write_image(tmp_path / f"v{i}.png", make_frame((10, 10, 10))) for i in range(4)]
+    provider(api).generate_avatar_images("p", refs(tmp_path, 3), sheet, 1, tmp_path / "av", "avatar_s0")
+    # limit 3: one garment photo is kept, and the first two sheet views (front, closeup) fill the rest
+    assert parts(api.posts[0]).count("images[]") == 3

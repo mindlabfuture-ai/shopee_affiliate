@@ -42,5 +42,6 @@ def write_video(path, frames, fps=12, tail_black=0, audio=False):
 
 
 def write_image(path, img):
-    cv2.imwrite(str(path), img)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert cv2.imwrite(str(path), img), f"could not write {path}"
     return path

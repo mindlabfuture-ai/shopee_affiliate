@@ -18,7 +18,8 @@ import numpy as np
 from fastapi import Body, Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 
-from ugc import config, costs, fal_gen, planner, providers, qa
+from ugc import avatar as avatar_sheet
+from ugc import config, costs, fal_gen, llm, planner, providers, qa
 from ugc.imaging import IMG_EXT
 from ugc.spec import (Feature, ProductSpec, list_slugs, listing_dir, listing_images, load_spec, product_dir,
                       read_json, save_spec, slugify, write_json)
@@ -240,15 +241,15 @@ def avatar(slug: str, body: dict = Body(...)):
         raise HTTPException(400, "generate a plan first")
     sb_idx = _storyboard(p, body.get("storyboard", 0))["index"]
     spec, listing = load_spec(slug), listing_images(slug)
-    avatar_ref = config.DATA_DIR / "avatar_reference.png"
+    avatar_refs = avatar_sheet.reference_files()
     prompt = p["storyboards"][sb_idx]["avatar_image"]["prompt"]
-    if avatar_ref.exists():
-        prompt += " The last reference image is the avatar: keep her face, hair and body the same."
+    if avatar_refs:
+        prompt += " The last reference images are the avatar: keep her face, hair and body the same."
 
     def run():
         costs.guard(est)
         imgs = prov.generate_avatar_images(
-            prompt, listing[:3], avatar_ref if avatar_ref.exists() else None, n, d / "avatars", f"avatar_s{sb_idx}",
+            prompt, listing[:3], avatar_refs, n, d / "avatars", f"avatar_s{sb_idx}",
             on_image=lambda img: _qa_avatar(d, spec, listing, img))  # cheap gate before any video money is spent
         return [i.name for i in imgs]
 
@@ -319,6 +320,80 @@ def clips_upload(slug: str, videos: list[UploadFile] = File(...), caption: str =
         return rep.to_dict()
 
     return {"job": start_job(f"clips upload {slug}", run, slug=slug)}
+
+
+# ---------- permanent avatar (four-view identity sheet) ----------
+def _avatar_state() -> dict:
+    sd = avatar_sheet.sheet_dir()
+    url = lambda p: f"/avatar-files/{p.relative_to(avatar_sheet.avatar_dir()).as_posix()}"  # noqa: E731
+    views = {}
+    for v in avatar_sheet.DISPLAY_ORDER:
+        pth = avatar_sheet.view_path(v)
+        views[v] = {"url": url(pth) + f"?t={int(pth.stat().st_mtime)}", "check": read_json(sd / f"{v}.json")} if pth.exists() else None
+    base = avatar_sheet.base_path()
+    return {"base": url(base) + f"?t={int(base.stat().st_mtime)}" if base.exists() else None, "views": views,
+            "hairstyle": (read_json(avatar_sheet.avatar_dir() / "settings.json") or {}).get("hairstyle", avatar_sheet.DEFAULT_HAIRSTYLE),
+            "default_hairstyle": avatar_sheet.DEFAULT_HAIRSTYLE,
+            "prompts": {v: avatar_sheet.view_prompt(v, (read_json(avatar_sheet.avatar_dir() / "settings.json") or {}).get(
+                "hairstyle", avatar_sheet.DEFAULT_HAIRSTYLE)) for v in avatar_sheet.DISPLAY_ORDER}}
+
+
+@app.get("/api/avatar", dependencies=[Depends(require_auth)])
+def avatar_get():
+    return _avatar_state()
+
+
+@app.post("/api/avatar/base", dependencies=[Depends(require_auth)])
+def avatar_base(photo: UploadFile = File(...)):
+    """The one source photo every view is made from. Replacing it does not delete existing views."""
+    if Path(photo.filename or "").suffix.lower() not in IMG_EXT:
+        raise HTTPException(400, "unsupported image type")
+    data = photo.file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "image is over 25 MB")
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(400, "cannot read that image")
+    avatar_sheet.save_base(img)
+    return _avatar_state()
+
+
+@app.post("/api/avatar/sheet/estimate", dependencies=[Depends(require_auth)])
+def avatar_sheet_estimate(body: dict = Body(default={})):
+    n = len(body.get("views") or avatar_sheet.VIEW_ORDER)
+    return {"usd": providers.get_provider().estimate_images(n), "images": n}
+
+
+@app.post("/api/avatar/sheet", dependencies=[Depends(require_auth)])
+def avatar_sheet_generate(body: dict = Body(...)):
+    """Generate (or regenerate) views of the permanent avatar. hairstyle: '' keeps her hair as in the photo."""
+    views = [v for v in avatar_sheet.VIEW_ORDER if v in (body.get("views") or avatar_sheet.VIEW_ORDER)]
+    if not views:
+        raise HTTPException(400, "no valid views requested")
+    if not avatar_sheet.base_path().exists():
+        raise HTTPException(400, "upload the base avatar photo first")
+    prov = providers.get_provider()
+    est = prov.estimate_images(len(views))
+    if float(body.get("confirm_usd", 0)) < est:
+        raise HTTPException(400, f"confirm the estimated cost (${est:.2f})")
+    hairstyle = str(body.get("hairstyle", "")).strip()
+    write_json(avatar_sheet.avatar_dir() / "settings.json", {"hairstyle": hairstyle})
+
+    def run():
+        costs.guard(est)
+        client = llm.get_client() if os.environ.get("ANTHROPIC_API_KEY") else None
+        return {v: avatar_sheet.generate_view(prov, v, hairstyle, client) for v in views}
+
+    return {"job": start_job("avatar sheet", run)}
+
+
+@app.get("/avatar-files/{path:path}", dependencies=[Depends(require_auth)])
+def avatar_files(path: str):
+    root = avatar_sheet.avatar_dir().resolve()
+    f = (root / path).resolve()
+    if root not in f.parents or not f.is_file() or f.suffix.lower() not in IMG_EXT:
+        raise HTTPException(404)
+    return FileResponse(f)
 
 
 @app.post("/api/avatar-reference", dependencies=[Depends(require_auth)])

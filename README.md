@@ -53,6 +53,20 @@ video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`. S
   this set `UGC_MAX_CLIP_S=4` so the planner writes several 4 s clips per storyboard instead of 6-8 s ones.
 - Check deAPI's terms for commercial use before posting results; I could not see them.
 
+## Permanent avatar
+
+The first section of the page makes one reusable character: upload a base photo, pick a hairstyle (or clear the
+field to keep her hair as it is), and **Make all 4 views**: close-up, front, left and right (three-quarter,
+turned toward that edge of the image). Every prompt locks the face (shape, eyes, nose, lips, skin, marks); only
+the hairstyle may change. Claude then compares each view with the base photo and labels it `consistent`, `check`
+(look at it yourself) or `drifted` (redo it). **Redo** regenerates one view for one image's cost, and the old
+version is kept in `data/avatar/sheet/history/`. The views are stored on the server volume, so the avatar is
+permanent, and every product shoot passes them (front, close-up, left, right, up to the model's limit) as identity
+references. Prefer ChatGPT? Open "Prefer to make them in ChatGPT?" and copy the four prompts.
+
+Use your own AI-generated character, not a photo of a real person (platform rules; see `CLAUDE.md`). Image-edit
+models keep a face similar, not identical, so approve views by eye as well as by the label.
+
 ## Manual mode (no generation spend)
 
 Make the images and clips in tools you already use and let the app do the planning and checking:

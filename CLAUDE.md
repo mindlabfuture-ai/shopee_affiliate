@@ -88,3 +88,4 @@ Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `
   bfb3b1cb-877b-4741-b4fb-18e5dba3413c / service ugc-api fba2eafe-7708-4afe-905b-8ba665f8bde3 / volume /data;
   Netlify site 8cce25f7-6f7f-4485-8bbf-2c1228335c4a (ugc-studio-mindlab). The app is locked (503) until APP_PASSWORD is
   set on Railway. If the Railway domain changes, update the two proxy targets in netlify.toml and redeploy Netlify.
+- Permanent avatar: `ugc/avatar.py`, endpoints `/api/avatar*`, files under `data/avatar/` (base.png, sheet/<view>.png + .json check, history/). Product shoots use `avatar.reference_files()` as identity references (provider `avatar_ref` may be a list). Face-lock wording lives in `avatar.FACE_LOCK`; views are made front first, then closeup/left/right with base+front as references.
