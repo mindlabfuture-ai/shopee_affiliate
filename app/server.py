@@ -323,6 +323,16 @@ def clips_upload(slug: str, videos: list[UploadFile] = File(...), caption: str =
 
 
 # ---------- permanent avatar (four-view identity sheet) ----------
+def _current_hairstyle() -> str:
+    """The saved choice; else the suggested style for a brand-new avatar, but empty ("keep her hair as in the
+    references") once any view exists, so a missing view matches the ones you already have."""
+    saved = read_json(avatar_sheet.avatar_dir() / "settings.json")
+    if saved and "hairstyle" in saved:
+        return saved["hairstyle"]
+    any_view = any(avatar_sheet.view_path(v).exists() for v in avatar_sheet.VIEWS)
+    return "" if any_view else avatar_sheet.DEFAULT_HAIRSTYLE
+
+
 def _avatar_state() -> dict:
     sd = avatar_sheet.sheet_dir()
     url = lambda p: f"/avatar-files/{p.relative_to(avatar_sheet.avatar_dir()).as_posix()}"  # noqa: E731
@@ -332,10 +342,9 @@ def _avatar_state() -> dict:
         views[v] = {"url": url(pth) + f"?t={int(pth.stat().st_mtime)}", "check": read_json(sd / f"{v}.json")} if pth.exists() else None
     base = avatar_sheet.base_path()
     return {"base": url(base) + f"?t={int(base.stat().st_mtime)}" if base.exists() else None, "views": views,
-            "hairstyle": (read_json(avatar_sheet.avatar_dir() / "settings.json") or {}).get("hairstyle", avatar_sheet.DEFAULT_HAIRSTYLE),
+            "hairstyle": _current_hairstyle(),
             "default_hairstyle": avatar_sheet.DEFAULT_HAIRSTYLE,
-            "prompts": {v: avatar_sheet.view_prompt(v, (read_json(avatar_sheet.avatar_dir() / "settings.json") or {}).get(
-                "hairstyle", avatar_sheet.DEFAULT_HAIRSTYLE)) for v in avatar_sheet.DISPLAY_ORDER}}
+            "prompts": {v: avatar_sheet.view_prompt(v, _current_hairstyle()) for v in avatar_sheet.DISPLAY_ORDER}}
 
 
 @app.get("/api/avatar", dependencies=[Depends(require_auth)])
@@ -356,6 +365,43 @@ def avatar_base(photo: UploadFile = File(...)):
         raise HTTPException(400, "cannot read that image")
     avatar_sheet.save_base(img)
     return _avatar_state()
+
+
+def _read_image_upload(photo: UploadFile) -> np.ndarray:
+    if Path(photo.filename or "").suffix.lower() not in IMG_EXT:
+        raise HTTPException(400, "unsupported image type")
+    data = photo.file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "image is over 25 MB")
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(400, "cannot read that image")
+    return img
+
+
+@app.post("/api/avatar/view/{view}", dependencies=[Depends(require_auth)])
+def avatar_view_upload(view: str, photo: UploadFile = File(...)):
+    """Use an image you made elsewhere for one slot (closeup, front, left, right). Replaces what is there."""
+    if view not in avatar_sheet.VIEWS:
+        raise HTTPException(400, f"unknown view {view!r}")
+    avatar_sheet.save_view(view, _read_image_upload(photo))
+    return _avatar_state()
+
+
+@app.delete("/api/avatar/view/{view}", dependencies=[Depends(require_auth)])
+def avatar_view_remove(view: str):
+    if view not in avatar_sheet.VIEWS:
+        raise HTTPException(400, f"unknown view {view!r}")
+    avatar_sheet.remove_view(view)
+    return _avatar_state()
+
+
+@app.post("/api/avatar/clear", dependencies=[Depends(require_auth)])
+def avatar_clear(body: dict = Body(...)):
+    """Delete the whole permanent avatar. Product shoot images are not touched."""
+    if body.get("confirm") is not True:
+        raise HTTPException(400, "send {\"confirm\": true} to delete the avatar")
+    return {"deleted": avatar_sheet.clear_all(), **_avatar_state()}
 
 
 @app.post("/api/avatar/sheet/estimate", dependencies=[Depends(require_auth)])

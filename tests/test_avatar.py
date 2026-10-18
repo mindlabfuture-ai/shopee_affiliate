@@ -220,3 +220,82 @@ def test_product_shoots_use_the_whole_sheet_as_identity_references(client, tmp_p
     assert j["status"] == "done"
     assert client.prov.calls[-1]["avatar_ref"] == ["front.png", "closeup.png", "left.png", "right.png"]
     assert "keep her face" in client.prov.calls[-1]["prompt"]
+
+
+# ---------- your own images, removal ----------
+def upload_view(client, tmp_path, view, tone, name=None, content_type="image/png"):
+    path = write_image(tmp_path / (name or f"{view}.png"), face_image(tone))
+    with path.open("rb") as f:
+        return client.post(f"/api/avatar/view/{view}", files={"photo": (path.name, f, content_type)})
+
+
+def test_your_own_views_fill_the_slots_and_the_first_becomes_the_base(client, tmp_path):
+    for view, tone in (("closeup", 70), ("left", 90), ("front", 110)):
+        assert upload_view(client, tmp_path, view, tone).status_code == 200
+    st = client.get("/api/avatar").json()
+    assert [v for v in ("closeup", "front", "left", "right") if st["views"][v]] == ["closeup", "front", "left"]
+    assert st["views"]["right"] is None
+    assert st["views"]["front"]["check"]["verdict"] == "provided"  # not claimed to be checked
+    assert st["base"] is not None
+    # the base is the first image uploaded (the close-up), not whichever came last
+    assert cv2.imread(str(avatar.base_path())).mean() == cv2.imread(str(avatar.view_path("closeup"))).mean()
+
+
+def test_only_the_missing_view_is_generated_from_your_images(client, tmp_path):
+    for view, tone in (("closeup", 70), ("left", 90), ("front", 110)):
+        upload_view(client, tmp_path, view, tone)
+    est = client.post("/api/avatar/sheet/estimate", json={"views": ["right"]}).json()
+    j = wait(client, client.post("/api/avatar/sheet", json={"views": ["right"], "confirm_usd": est["usd"]}).json()["job"])
+    assert j["status"] == "done" and list(j["result"]) == ["right"]
+    assert client.prov.calls[-1]["garments"] == ["base.png", "front.png"]  # your close-up and your front view
+    st = client.get("/api/avatar").json()
+    assert all(st["views"][v] for v in ("closeup", "front", "left", "right"))
+    assert st["views"]["front"]["check"]["verdict"] == "provided"  # yours were left untouched
+
+
+def test_webp_uploads_work(client, tmp_path):
+    path = tmp_path / "front.webp"
+    assert cv2.imwrite(str(path), face_image(100))
+    with path.open("rb") as f:
+        r = client.post("/api/avatar/view/front", files={"photo": ("front.webp", f, "image/webp")})
+    assert r.status_code == 200 and avatar.view_path("front").exists()
+
+
+def test_remove_one_view(client, tmp_path):
+    upload_view(client, tmp_path, "front", 100)
+    upload_view(client, tmp_path, "left", 90)
+    assert client.delete("/api/avatar/view/left").json()["views"]["left"] is None
+    assert avatar.view_path("front").exists() and not (avatar.sheet_dir() / "left.json").exists()
+
+
+def test_clear_deletes_everything_but_only_when_confirmed(client, tmp_path):
+    upload_view(client, tmp_path, "front", 100)
+    write_image(avatar.sheet_dir() / "history" / "front_1.png", face_image(50))
+    write_image(config.DATA_DIR / "avatar_reference.png", face_image(60))
+    other = write_image(config.DATA_DIR / "products" / "dress" / "avatars" / "avatar_s0_01.png", face_image(70))
+    assert client.post("/api/avatar/clear", json={}).status_code == 400
+    assert client.post("/api/avatar/clear", json={"confirm": "yes"}).status_code == 400  # exactly true, nothing looser
+    r = client.post("/api/avatar/clear", json={"confirm": True}).json()
+    assert r["deleted"] >= 4 and r["base"] is None and not any(r["views"].values())
+    assert avatar.reference_files() == [] and not avatar.avatar_dir().exists()
+    assert other.exists()  # product shoot images are not part of the avatar
+
+
+def test_view_upload_rejects_bad_input(client, tmp_path):
+    assert upload_view(client, tmp_path, "back", 100).status_code == 400
+    assert client.post("/api/avatar/view/front", files={"photo": ("a.gif", b"x", "image/gif")}).status_code == 400
+    assert client.post("/api/avatar/view/front", files={"photo": ("a.png", b"junk", "image/png")}).status_code == 400
+    assert client.delete("/api/avatar/view/back").status_code == 400
+
+
+def test_missing_view_keeps_the_hair_of_the_views_you_already_have(client, tmp_path):
+    assert client.get("/api/avatar").json()["hairstyle"] == avatar.DEFAULT_HAIRSTYLE  # brand-new avatar
+    for view, tone in (("closeup", 70), ("left", 90), ("front", 110)):
+        upload_view(client, tmp_path, view, tone)
+    st = client.get("/api/avatar").json()
+    assert st["hairstyle"] == "" and "Keep the same hairstyle" in st["prompts"]["right"]  # not the suggested style
+    est = client.post("/api/avatar/sheet/estimate", json={"views": ["right"]}).json()
+    wait(client, client.post("/api/avatar/sheet", json={"views": ["right"], "hairstyle": st["hairstyle"],
+                                                         "confirm_usd": est["usd"]}).json()["job"])
+    assert "Keep the same hairstyle" in client.prov.calls[-1]["prompt"]
+    assert "straight" not in client.prov.calls[-1]["prompt"]

@@ -45,6 +45,8 @@
   .info, .skip { color: var(--muted); }
   .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; font-size: 13px; }
   .hidden { display: none !important; }
+  button.danger { color: var(--bad); border-color: var(--bad); }
+  label.up { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 14px; margin: 0; color: var(--ink); }
   .slot { width: 150px; height: 266px; border: 1px dashed var(--line); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
   #sheetPrompts pre { cursor: copy; }
   a.dl { display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600; }
@@ -83,7 +85,9 @@
         <input id="avHair" placeholder="long sleek straight black hair with a soft side part"></div>
     </div>
     <div class="actions"><button id="avBaseBtn">Upload photo</button>
-      <button class="primary" id="sheetBtn">Make all 4 views</button><span class="note" id="sheetCost"></span></div>
+      <button class="primary" id="sheetBtn">Make all 4 views</button>
+      <button id="sheetMissing">Make missing views only</button>
+      <button id="clearAv" class="danger">Clear avatar</button><span class="note" id="sheetCost"></span></div>
     <div class="thumbs" id="avBaseBox"></div>
     <div class="thumbs" id="sheet"></div>
     <details><summary class="note">Prefer to make them in ChatGPT? Click a prompt to copy it (attach your base photo)</summary><div id="sheetPrompts"></div></details>
@@ -319,9 +323,11 @@ $("#clipUpBtn").onclick = (e) => guarded(e.target, $("#clipUpMsg"), async () => 
 });
 
 const VIEW_NAMES = { closeup: "Close-up", front: "Front", left: "Left", right: "Right" };
-const VERDICT = { consistent: "pass", check: "warn", drifted: "fail", unchecked: "skip" };
+const VERDICT = { consistent: "pass", check: "warn", drifted: "fail", unchecked: "skip", provided: "info" };
+let lastAvatar = null;
 async function loadAvatar() {
   const a = await api("/api/avatar");
+  lastAvatar = a;
   $("#avBaseBox").innerHTML = a.base ? `<figure><img src="${a.base}"><figcaption>base photo</figcaption></figure>` : "";
   if (!$("#avHair").dataset.touched) $("#avHair").value = a.hairstyle ?? "";
   $("#sheet").innerHTML = ["closeup", "front", "left", "right"].map((v) => {
@@ -329,7 +335,9 @@ async function loadAvatar() {
     return `<figure>${x ? `<img src="${x.url}">` : '<div class="slot">not made yet</div>'}
       <figcaption>${VIEW_NAMES[v]} ${c ? `<span class="pill ${VERDICT[c.verdict] || "skip"}" title="${esc(c.summary)}">${esc(c.verdict)}</span>` : ""}</figcaption>
       ${x ? `<a href="${x.url}" download="avatar-${v}.png" class="note">download</a> ` : ""}
-      <button type="button" data-view="${v}" ${a.base ? "" : "disabled"}>${x ? "Redo" : "Make"}</button></figure>`;
+      <button type="button" data-view="${v}" ${a.base ? "" : "disabled"}>${x ? "Redo" : "Make"}</button>
+      <label class="up">Use mine<input type="file" accept="image/*" data-up="${v}" hidden></label>
+      ${x ? `<button type="button" data-remove="${v}" class="danger">Remove</button>` : ""}</figure>`;
   }).join("");
   $("#sheetPrompts").innerHTML = ["closeup", "front", "left", "right"].map((v) => `<strong>${VIEW_NAMES[v]}</strong><pre>${esc(a.prompts[v])}</pre>`).join("");
   const e = await post("/api/avatar/sheet/estimate", {});
@@ -337,8 +345,10 @@ async function loadAvatar() {
   $("#sheetBtn").disabled = !a.base;
 }
 async function makeViews(views, btn) {
+  if (!views.length) { showError("Nothing to make: all four views already exist."); return; }
   const est = (await post("/api/avatar/sheet/estimate", { views })).usd;
-  if (!confirm(`Generate ${views.length} image(s)? Estimated cost $${est.toFixed(2)}.`)) return;
+  const replacing = views.filter((v) => lastAvatar && lastAvatar.views[v]).map((v) => VIEW_NAMES[v]);
+  if (!confirm(`Generate ${views.length} image(s)? Estimated cost $${est.toFixed(2)}.` + (replacing.length ? `\nThis replaces: ${replacing.join(", ")} (the old ones go to history).` : ""))) return;
   $("#sheetCost").textContent = "working… this takes a few minutes";
   const { job } = await post("/api/avatar/sheet", { views, hairstyle: $("#avHair").value, confirm_usd: est });
   await waitJob(job, $("#sheetCost"));
@@ -349,7 +359,22 @@ $("#avBaseBtn").onclick = (e) => guarded(e.target, null, async () => {
   await api("/api/avatar/base", { method: "POST", body: fd }); $("#avBase").value = "";
 });
 $("#sheetBtn").onclick = (e) => guarded(e.target, $("#sheetCost"), () => makeViews(["closeup", "front", "left", "right"], e.target));
-$("#sheet").onclick = (e) => { const v = e.target.dataset.view; if (v) guarded(e.target, $("#sheetCost"), () => makeViews([v], e.target)); };
+$("#sheet").onclick = (e) => {
+  const v = e.target.dataset.view, rm = e.target.dataset.remove;
+  if (v) guarded(e.target, $("#sheetCost"), () => makeViews([v], e.target));
+  if (rm && confirm(`Remove the ${VIEW_NAMES[rm]} view?`)) guarded(e.target, null, () => api(`/api/avatar/view/${rm}`, { method: "DELETE" }));
+};
+$("#sheet").onchange = (e) => {
+  const v = e.target.dataset.up, f = e.target.files && e.target.files[0]; if (!v || !f) return;
+  const fd = new FormData(); fd.append("photo", f);
+  guarded(e.target, null, () => api(`/api/avatar/view/${v}`, { method: "POST", body: fd }));
+};
+$("#sheetMissing").onclick = (e) => guarded(e.target, $("#sheetCost"), () =>
+  makeViews(["closeup", "front", "left", "right"].filter((v) => !(lastAvatar && lastAvatar.views[v])), e.target));
+$("#clearAv").onclick = (e) => {
+  if (!confirm("Delete the whole permanent avatar (base photo, all four views and their history)? This cannot be undone. Product shoot images are kept.")) return;
+  guarded(e.target, null, () => post("/api/avatar/clear", { confirm: true }));
+};
 $("#sheetPrompts").onclick = async (e) => { const pre = e.target.closest("pre"); if (pre) try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {} };
 
 boot().catch((e) => { if (e.message === "login required") return;

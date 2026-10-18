@@ -83,6 +83,34 @@ def save_base(img: np.ndarray) -> Path:
     return base_path()
 
 
+# ---------- your own images, removal ----------
+def save_view(view: str, img: np.ndarray) -> None:
+    """Put an image you made elsewhere straight into a slot. It is not re-checked: you chose it.
+    The first image saved also becomes the base photo, so it can serve as the reference for missing views."""
+    sheet_dir().mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(view_path(view)), img)
+    (sheet_dir() / f"{view}.json").write_text(json.dumps(
+        {"verdict": "provided", "summary": "uploaded by you, not generated or checked"}, indent=2))
+    if not base_path().exists():
+        save_base(img)
+
+
+def remove_view(view: str) -> None:
+    view_path(view).unlink(missing_ok=True)
+    (sheet_dir() / f"{view}.json").unlink(missing_ok=True)
+
+
+def clear_all() -> int:
+    """Delete the whole permanent avatar (base, views, history, settings) and the old single-image avatar."""
+    n = sum(1 for p in avatar_dir().rglob("*") if p.is_file()) if avatar_dir().exists() else 0
+    shutil.rmtree(avatar_dir(), ignore_errors=True)
+    legacy = config.DATA_DIR / "avatar_reference.png"
+    if legacy.exists():
+        legacy.unlink()
+        n += 1
+    return n
+
+
 # ---------- consistency check ----------
 class AttributeCheck(BaseModel):
     attribute: str

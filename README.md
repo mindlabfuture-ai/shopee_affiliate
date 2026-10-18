@@ -62,7 +62,11 @@ the hairstyle may change. Claude then compares each view with the base photo and
 (look at it yourself) or `drifted` (redo it). **Redo** regenerates one view for one image's cost, and the old
 version is kept in `data/avatar/sheet/history/`. The views are stored on the server volume, so the avatar is
 permanent, and every product shoot passes them (front, close-up, left, right, up to the model's limit) as identity
-references. Prefer ChatGPT? Open "Prefer to make them in ChatGPT?" and copy the four prompts.
+references. Prefer ChatGPT? Open "Prefer to make them in ChatGPT?" and copy the four prompts, or make the images anywhere
+and press **Use mine** on a slot to put your own image there (it is stored as-is and labelled `provided`; the
+first image you add also becomes the base photo). **Make missing views only** then fills the gaps from your
+images and keeps her hair as in them. **Remove** deletes one view; **Clear avatar** deletes the base photo, all
+views and the history (product shoot images are kept).
 
 Use your own AI-generated character, not a photo of a real person (platform rules; see `CLAUDE.md`). Image-edit
 models keep a face similar, not identical, so approve views by eye as well as by the label.
