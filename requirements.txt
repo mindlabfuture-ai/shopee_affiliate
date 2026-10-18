@@ -1,0 +1,9 @@
+anthropic>=1.0
+fal-client
+fastapi
+uvicorn
+python-multipart
+httpx
+opencv-python-headless
+numpy
+pydantic>=2

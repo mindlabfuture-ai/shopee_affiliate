@@ -147,3 +147,36 @@ def test_clip_upload_rejects_bad_type(client, tmp_path):
     slug = make_product(client, tmp_path)
     r = client.post(f"/api/products/{slug}/clips/upload", files=[("videos", ("x.exe", b"x", "application/octet-stream"))])
     assert r.status_code == 400
+
+
+# ---------- production hardening ----------
+def test_locked_when_password_required_but_missing(monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.setenv("UGC_REQUIRE_PASSWORD", "1")
+    from app import server
+    importlib.reload(server)
+    c = TestClient(server.app)
+    assert c.get("/health").json() == {"ok": True}  # healthcheck still answers
+    assert c.get("/api/state").status_code == 503
+    assert c.post("/api/login", json={"password": ""}).status_code == 503
+
+
+def test_login_lockout_after_repeated_failures(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "s3cret")
+    monkeypatch.setenv("UGC_SECURE_COOKIE", "1")
+    from app import server
+    importlib.reload(server)
+    c = TestClient(server.app)
+    codes = [c.post("/api/login", json={"password": "bad"}).status_code for _ in range(10)]
+    assert codes[:8] == [401] * 8 and codes[8:] == [429, 429]
+    assert c.post("/api/login", json={"password": "s3cret"}).status_code == 429  # even the right one while locked
+
+
+def test_secure_cookie_flag(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "s3cret")
+    monkeypatch.setenv("UGC_SECURE_COOKIE", "1")
+    from app import server
+    importlib.reload(server)
+    r = TestClient(server.app).post("/api/login", json={"password": "s3cret"})
+    cookie = r.headers["set-cookie"].lower()
+    assert "secure" in cookie and "httponly" in cookie and "samesite=strict" in cookie

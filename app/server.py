@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -33,22 +34,48 @@ VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
 
 
 # ---------- auth ----------
-def _token() -> str:
-    return hmac.new(os.environ["APP_PASSWORD"].encode(), b"ugc-session", hashlib.sha256).hexdigest()
+LOGIN_WINDOW_S, LOGIN_MAX_FAILURES = 600, 8
+_failures: list[float] = []
+
+
+def _password() -> str | None:
+    """APP_PASSWORD, or None for open local use. In production (UGC_REQUIRE_PASSWORD=1) a missing password
+    locks the app instead of leaving it open."""
+    pw = os.environ.get("APP_PASSWORD")
+    if not pw and os.environ.get("UGC_REQUIRE_PASSWORD") == "1":
+        raise HTTPException(503, "APP_PASSWORD is not set on the server; the app stays locked until it is")
+    return pw
+
+
+def _token(pw: str) -> str:
+    return hmac.new(pw.encode(), b"ugc-session", hashlib.sha256).hexdigest()
 
 
 def require_auth(ugc_session: str | None = Cookie(default=None)) -> None:
-    if os.environ.get("APP_PASSWORD") and not (ugc_session and hmac.compare_digest(ugc_session, _token())):
+    pw = _password()
+    if pw and not (ugc_session and hmac.compare_digest(ugc_session, _token(pw))):
         raise HTTPException(401, "login required")
+
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"ok": True}  # no data; used by Railway's healthcheck
 
 
 @app.post("/api/login")
 def login(response: Response, body: dict = Body(...)):
-    pw = os.environ.get("APP_PASSWORD")
-    if pw and not hmac.compare_digest(str(body.get("password", "")), pw):
-        raise HTTPException(401, "wrong password")
+    pw = _password()
     if pw:
-        response.set_cookie("ugc_session", _token(), httponly=True, samesite="strict")
+        now = time.time()
+        _failures[:] = [t for t in _failures if now - t < LOGIN_WINDOW_S]
+        if len(_failures) >= LOGIN_MAX_FAILURES:  # single-user app: one global lockout is enough
+            raise HTTPException(429, "too many failed logins; try again in a few minutes")
+        if not hmac.compare_digest(str(body.get("password", "")), pw):
+            _failures.append(now)
+            raise HTTPException(401, "wrong password")
+        _failures.clear()
+        response.set_cookie("ugc_session", _token(pw), httponly=True, samesite="strict", max_age=30 * 86400,
+                            secure=os.environ.get("UGC_SECURE_COOKIE") == "1")
     return {"ok": True}
 
 

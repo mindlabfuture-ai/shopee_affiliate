@@ -290,7 +290,8 @@ $("#clipUpBtn").onclick = (e) => guarded(e.target, $("#clipUpMsg"), async () => 
   await waitJob(job, null); $("#clipUpMsg").textContent = ""; $("#clipUp").value = "";
 });
 
-boot().catch(() => {});
+boot().catch((e) => { if (e.message === "login required") return;
+  const kw = $("#keyWarn"); $("#app").classList.remove("hidden"); kw.classList.remove("hidden"); kw.textContent = e.message; });
 </script>
 </body>
 </html>

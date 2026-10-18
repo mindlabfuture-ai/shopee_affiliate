@@ -21,3 +21,13 @@ dev = ["pytest"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ugc", "ugc.qa", "ugc.providers", "app"]
+
+[tool.setuptools.package-data]
+app = ["static/*"]

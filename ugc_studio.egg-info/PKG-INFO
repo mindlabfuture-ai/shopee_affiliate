@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: ugc-studio
+Version: 0.1.0
+Summary: Garment-faithful AI UGC video pipeline for Shopee / TikTok Shop
+Requires-Python: >=3.10
+Requires-Dist: anthropic>=1.0
+Requires-Dist: fal-client
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: python-multipart
+Requires-Dist: httpx
+Requires-Dist: opencv-python-headless
+Requires-Dist: numpy
+Requires-Dist: pydantic>=2
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
