@@ -12,7 +12,8 @@ from pydantic import BaseModel
 
 from . import config, llm
 from .imaging import read_image, to_jpeg_b64
-from .rules import ALTER_RE, DISCLOSURE_CHECKLIST, POSES, RISKY_PHRASES, RULES_TEXT, SHOT_TAGS, VOICE_RE
+from .rules import (ACTIONS, ALTER_RE, CAMERA_MOVES, DISCLOSURE_CHECKLIST, RISKY_PHRASES, RULES_TEXT, SHOT_TAGS,
+                    VOICE_RE)
 from .spec import ProductSpec
 
 MIN_STORYBOARDS = 3
@@ -25,13 +26,18 @@ NEGATIVE_PROMPT = (
 
 
 class ClipPlan(BaseModel):
-    duration_s: int  # 4, 6 or 8
+    duration_s: int  # one of config.allowed_clip_seconds()
     shots: list[str]
-    motion_prompt: str  # person movement and camera only; never describes changes to the garment
+    action: str  # a key of rules.ACTIONS
+    camera: str  # a key of rules.CAMERA_MOVES
+    start_state: str  # pose, position and framing at the first frame (the previous clip's end_state, word for word)
+    end_state: str  # pose, position and framing at the last frame
+    motion_prompt: str  # how she moves from start_state to end_state; never describes changes to the garment
 
 
 class Storyboard(BaseModel):
     title: str
+    arc: str  # the shoot as one continuous take, in a sentence, e.g. "settle, show the back, lean, look up"
     location: str  # a specific outdoor place, e.g. "tropical garden path"
     time_of_day: str
     mood: str
@@ -69,11 +75,26 @@ STORYBOARDS (required): the outfit in the uploaded photos is featured in an outd
 
 Format: vertical 9:16, silent. Each clip is {{clip_seconds}} seconds; a storyboard's clips total about the target
 duration (use more clips when each is short). Shot tags: {', '.join(SHOT_TAGS)}.
-Pose library (pick and combine; change pose roughly every 1-2 seconds, keep motion gentle so the garment
-stays stable): {json.dumps(POSES)}.
-Rules for motion prompts: describe the person's movement and the camera only. No speech, no music, no
-text overlays, no brand names. Use fabric_swish only for flowing fabric. If the listing shows pockets,
-include one natural pocket pose. Include one full-length shot where the hem is visible.
+
+CONTINUITY (required). A storyboard's clips are generated one after another, and every clip starts from the LAST
+FRAME of the previous clip, so the storyboard must play as one continuous take:
+- clips[0].start_state is the pose, framing and place of your avatar still prompt.
+- Each clip's end_state is exactly how its last frame looks; the next clip's start_state must repeat it WORD FOR
+  WORD. Same place, same light, no scene jumps, no cuts.
+- motion_prompt describes how she gets from start_state to end_state, plus the camera. Nothing else changes.
+
+VARIETY (required). The video must not be just walking. Give every clip an `action` from this library:
+{json.dumps(ACTIONS)}
+and a `camera` from this one: {json.dumps(CAMERA_MOVES)}
+Use at least three different actions in a storyboard with three or more clips (two with two clips), never the
+same action in consecutive clips, and `walk` at most once. Build a small arc (for example settle, turn to show the
+back, hand in pocket, lean, look up, step toward the camera) and put it in `arc`. Alternate the camera moves too.
+Keep every move slow and gentle so the garment stays stable: no fast spins, running, jumping, big arm swings or
+hands covering the garment. Pick only actions that suit this garment (twirl only for flowing fabric; sit only if
+the length and fabric allow it without bunching). Include one natural pocket moment if the listing shows pockets,
+and one full-length shot where the hem is visible.
+Rules for prompts: describe the person's movement and the camera only. No speech, no music, no text overlays,
+no brand names.
 Captions: truthful, matching the listing. Hooks: short ({{language}}), no exaggerated-result claims, no
 'sexy'. Shopee and TikTok captions should include the AI-generated disclosure note.
 `risks`: list anything about this product that could cause garment drift or a policy problem
@@ -104,6 +125,28 @@ def lock_clause(spec: ProductSpec) -> str:
     )
 
 
+def _norm(text: str) -> str:
+    return " ".join(text.lower().split()).rstrip(".")
+
+
+def _variety_and_continuity(tag: str, sb: Storyboard) -> list[Issue]:
+    out: list[Issue] = []
+    actions = [c.action for c in sb.clips]
+    if len(set(actions)) < min(3, len(actions)):
+        out.append(Issue("error", f"{tag}: use at least {min(3, len(actions))} different actions, got {sorted(set(actions))}"))
+    if actions.count("walk") > 1:
+        out.append(Issue("error", f"{tag}: 'walk' may be used at most once; the video must not be just walking"))
+    for i in range(1, len(sb.clips)):
+        if sb.clips[i].action == sb.clips[i - 1].action:
+            out.append(Issue("error", f"{tag}: clips {i} and {i + 1} repeat the action {sb.clips[i].action!r}"))
+        if _norm(sb.clips[i].start_state) != _norm(sb.clips[i - 1].end_state):
+            out.append(Issue("error", f"{tag}: clip {i + 1} start_state must repeat clip {i} end_state word for word "
+                                      "(each clip starts from the previous clip's last frame)"))
+    if len(sb.clips) > 1 and len({c.camera for c in sb.clips}) == 1:
+        out.append(Issue("warn", f"{tag}: every clip uses the camera {sb.clips[0].camera!r}; vary it"))
+    return out
+
+
 def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
     issues: list[Issue] = []
     sbs = plan.storyboards
@@ -132,6 +175,15 @@ def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
                 if t not in SHOT_TAGS:
                     issues.append(Issue("error", f"{tag} clip {i}: unknown shot tag {t!r}"))
             texts[f"{tag} clip {i} motion"] = c.motion_prompt
+            texts[f"{tag} clip {i} start_state"] = c.start_state
+            texts[f"{tag} clip {i} end_state"] = c.end_state
+            if c.action not in ACTIONS:
+                issues.append(Issue("error", f"{tag} clip {i}: unknown action {c.action!r}; use one of {sorted(ACTIONS)}"))
+            if c.camera not in CAMERA_MOVES:
+                issues.append(Issue("error", f"{tag} clip {i}: unknown camera {c.camera!r}; use one of {sorted(CAMERA_MOVES)}"))
+            if not c.start_state.strip() or not c.end_state.strip():
+                issues.append(Issue("error", f"{tag} clip {i}: start_state and end_state must both be filled in"))
+        issues += _variety_and_continuity(tag, sb)
         texts[f"{tag} avatar_image_prompt"] = sb.avatar_image_prompt
         texts[f"{tag} location"] = f"{sb.location} {sb.mood}"
 
@@ -157,6 +209,14 @@ def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
     return issues
 
 
+def clip_prompt(lock: str, c: ClipPlan) -> str:
+    """Code builds the continuity wording, so it never depends on the model remembering it."""
+    return (f"{lock} The first frame is the exact starting state: {c.start_state.strip().rstrip('.')}. "
+            f"{c.motion_prompt.strip()} Camera: {CAMERA_MOVES.get(c.camera, c.camera)}. "
+            f"End in this state: {c.end_state.strip().rstrip('.')}. One continuous take, no cuts; the place, lighting "
+            "and the garment stay exactly the same throughout.")
+
+
 def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
     lock = lock_clause(spec)
     return {
@@ -167,9 +227,13 @@ def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
             {
                 "index": n, "title": sb.title, "location": sb.location, "time_of_day": sb.time_of_day, "mood": sb.mood,
                 "avatar_image": {"endpoint": config.IMAGE_ENDPOINT, "prompt": f"{lock} {sb.avatar_image_prompt}"},
+                "arc": sb.arc,
                 "clips": [
-                    {"index": i, "duration_s": c.duration_s, "shots": c.shots, "endpoint": config.VIDEO_ENDPOINT,
-                     "prompt": f"{lock} {c.motion_prompt}", "negative_prompt": NEGATIVE_PROMPT,
+                    {"index": i, "duration_s": c.duration_s, "shots": c.shots, "action": c.action, "camera": c.camera,
+                     "start_state": c.start_state, "end_state": c.end_state, "chained": i > 1,
+                     "endpoint": config.VIDEO_ENDPOINT,
+                     "prompt": clip_prompt(lock, c),
+                     "negative_prompt": NEGATIVE_PROMPT,
                      "params": {"aspect_ratio": "9:16", "resolution": config.VIDEO_RESOLUTION,
                                 "duration": f"{c.duration_s}s", "generate_audio": False}}
                     for i, c in enumerate(sb.clips, 1)

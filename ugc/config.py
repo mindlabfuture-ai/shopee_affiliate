@@ -22,7 +22,9 @@ DEAPI_POLL_S = float(os.environ.get("UGC_DEAPI_POLL_S", "8"))  # Basic accounts 
 IMAGE_ENDPOINT = os.environ.get("UGC_IMAGE_ENDPOINT", "fal-ai/nano-banana/edit")
 VIDEO_ENDPOINT = os.environ.get("UGC_VIDEO_ENDPOINT", "fal-ai/veo3.1/lite/image-to-video")
 VIDEO_RESOLUTION = os.environ.get("UGC_VIDEO_RESOLUTION", "720p")  # 1080p requires 8s clips on Veo Lite
-CLIP_SECONDS = (4, 6, 8)  # durations Veo 3.1 accepts
+# Clip lengths the planner may use. Veo 3.1 accepts 4, 6 or 8 s; longer-clip models (for example Seedance, up to ~30 s)
+# can be allowed with e.g. UGC_CLIP_SECONDS=5,8,10,12. MAX_CLIP_S still caps them.
+CLIP_SECONDS = tuple(sorted({int(x) for x in os.environ.get("UGC_CLIP_SECONDS", "4,6,8").split(",") if x.strip()}))
 MAX_CLIP_S = int(os.environ.get("UGC_MAX_CLIP_S", "8"))  # set 4 for models capped at ~4 s (e.g. LTX-Video 13B on deAPI)
 
 

@@ -53,6 +53,26 @@ video model); pin them with `UGC_DEAPI_IMAGE_MODEL` / `UGC_DEAPI_VIDEO_MODEL`. S
   this set `UGC_MAX_CLIP_S=4` so the planner writes several 4 s clips per storyboard instead of 6-8 s ones.
 - Check deAPI's terms for commercial use before posting results; I could not see them.
 
+## Storyboards: variety and smooth transitions
+
+Sonnet plans each storyboard as one continuous take, not a string of separate clips:
+
+- **Chained clips.** Every clip after the first starts from the *last frame of the previous clip*, so the join has no
+  jump. The first clip starts from the approved avatar image. Finished clips are kept, so a failure part-way resumes
+  from the last good clip without paying again; changing the plan discards the old clips.
+- **Hand-offs.** Each clip has a `start_state` and an `end_state`; a clip's start must repeat the previous clip's end
+  word for word (the planner lint rejects anything else and asks Sonnet to fix it). Code writes the "start from this
+  state ... end in this state ... one continuous take" wording into each prompt.
+- **Variety.** Each clip picks an action from a library (pose hold, turn over the shoulder, hair touch, hand on hip,
+  pocket hand, lean, sit, hold a plain prop, look up and smile, twirl for flowing fabric, step and pause, wave, walk)
+  and a slow camera move (push in, pull back, tilt up from the hem, handheld drift, low angle). At least three
+  different actions per storyboard, never the same one twice in a row, and walking at most once.
+- **Clip length.** Default 4, 6 or 8 s (Veo). For longer-clip models such as Seedance set
+  `UGC_CLIP_SECONDS=5,8,10,12` and `UGC_MAX_CLIP_S=12` (up to the model's limit).
+
+Chaining carries any drift forward: if the garment shifts in clip 2, clip 3 starts from the shifted frame. The QA
+report's colour stability and join checks are there to catch that; look at the end of long chains yourself.
+
 ## Permanent avatar
 
 The first section of the page makes one reusable character: upload a base photo, pick a hairstyle (or clear the

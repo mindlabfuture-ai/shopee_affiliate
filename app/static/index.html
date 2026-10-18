@@ -254,7 +254,10 @@ async function refresh() {
   $("#plan").innerHTML = !p ? "" :
     p.storyboards.map((s) => `<details ${s.index === 0 ? "open" : ""}><summary><strong>Storyboard ${s.index + 1}: ${esc(s.title)}</strong> <span class="note">${esc(s.location)} · ${esc(s.time_of_day)} · ${esc(s.mood)}</span></summary>` +
       `<div class="note">Avatar still prompt</div><pre>${esc(s.avatar_image.prompt)}</pre>` +
-      s.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.shots.join(", "))}</strong><pre>${esc(c.prompt)}</pre>`).join("") + `</details>`).join("") +
+      (s.arc ? `<div class="note">Arc: ${esc(s.arc)}</div>` : "") +
+      s.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.action || "")}${c.camera ? " · camera: " + esc(c.camera) : ""} · ${esc(c.shots.join(", "))}</strong>` +
+        (c.start_state ? `<div class="note">starts: ${esc(c.start_state)}${c.chained ? " (from the previous clip's last frame)" : ""}<br>ends: ${esc(c.end_state)}</div>` : "") +
+        `<pre>${esc(c.prompt)}</pre>`).join("") + `</details>`).join("") +
     `<strong>Hooks</strong><pre>${esc(p.hook_captions.join("\n"))}</pre><strong>TikTok caption</strong><pre>${esc(p.tiktok_caption)}</pre>` +
     `<strong>Shopee caption</strong><pre>${esc(p.shopee_caption)}</pre>` +
     (p.risks.length ? `<strong>Risks</strong><pre>${esc(p.risks.join("\n"))}</pre>` : "") +

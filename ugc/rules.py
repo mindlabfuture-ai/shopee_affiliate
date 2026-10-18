@@ -14,18 +14,30 @@ Compliance rules (Shopee Video AI guidelines, TikTok Shop AI content policy):
 - Captions must be truthful and match the listing.
 """
 
-# Pose library: name -> what it shows. The planner picks from these.
-POSES = {
-    "front_stand": "standing facing camera, relaxed, soft smile",
-    "slow_turn": "slow quarter turn to show the side profile",
-    "back_view": "turns to show the back, glances over the shoulder",
-    "hand_on_hip": "one hand on hip, weight on one leg",
-    "hair_touch": "touches hair lightly",
-    "gesture": "open palm gesture toward the camera",
-    "walk": "two or three slow steps toward the camera",
-    "pocket_hand": "one hand resting naturally in the side pocket",
-    "fabric_swish": "gentle sway so the skirt or hem moves (only for flowing fabric)",
-    "detail_closeup": "slow push-in on a key construction detail, no change of the garment",
+# Actions a storyboard can use (name -> what it looks like). Variety matters: walking is allowed once per storyboard.
+ACTIONS = {
+    "pose_hold": "settles into a relaxed pose and holds it, soft smile, tiny natural movements",
+    "turn_over_shoulder": "slow turn away from the camera, glancing back over the shoulder",
+    "hair_touch": "tucks hair behind the ear or gives it a gentle toss",
+    "hand_on_hip": "one hand on hip, shifts weight to one leg",
+    "pocket_hand": "one hand slips naturally into the side pocket",
+    "lean": "leans a shoulder against a wall, railing or tree and relaxes",
+    "sit": "sits down on a bench, low wall or step and crosses her ankles (only if the garment suits it)",
+    "hold_prop": "lifts a plain handbag or a cup from beside her, no brand names, never covering the garment",
+    "look_up_smile": "looks up toward the light and breaks into a natural smile",
+    "twirl": "a slow half turn so a flowing skirt or hem swings out (flowing fabric only)",
+    "step_and_pause": "takes one step toward the camera and pauses",
+    "walk": "walks toward the camera for a few steps (at most once per storyboard)",
+    "wave_gesture": "a small friendly gesture toward the camera",
+}
+
+CAMERA_MOVES = {
+    "static": "locked camera",
+    "slow_push_in": "slow push in toward her",
+    "slow_pull_back": "slow pull back to reveal more of her and the place",
+    "tilt_up": "starts low on the hem and tilts up slowly to her face (shows the full length)",
+    "handheld_follow": "gentle handheld camera that drifts with her movement",
+    "low_angle": "slightly low camera angle looking up, steady",
 }
 
 SHOT_TAGS = ("front", "side", "back", "full_length", "pocket", "detail_closeup", "walk")

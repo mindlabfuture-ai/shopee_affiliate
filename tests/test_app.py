@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,7 +188,7 @@ class FakeProv:
     name = "fake"
 
     def __init__(self, fail_on=None):
-        self.calls, self.fail_on = [], fail_on
+        self.calls, self.fail_on, self.starts = [], fail_on, []
 
     def missing_env(self): return []
     def describe(self): return {"provider": "fake", "image": "i", "video": "v", "resolution": "r"}
@@ -196,6 +197,7 @@ class FakeProv:
 
     def generate_clip(self, prompt, negative_prompt, image, duration_s, out_path):
         self.calls.append(out_path.name)
+        self.starts.append(Path(image).name)
         if out_path.name == self.fail_on:
             raise RuntimeError("deAPI POST /api/v2/videos/animations -> 429: Too Many Attempts.")
         write_video(out_path, [make_frame((47, 45, 179)) for _ in range(12)])
@@ -256,3 +258,55 @@ def test_a_correct_password_clears_the_failed_attempts(monkeypatch):
         c.post("/api/login", json={"password": "typo"})
     assert c.post("/api/login", json={"password": "s3cret"}).status_code == 200
     assert "7 attempts left" in c.post("/api/login", json={"password": "typo"}).json()["detail"]  # counter reset
+
+
+def plan3(prompt="p"):
+    clips = [{"index": i, "duration_s": 4, "prompt": f"{prompt}{i}", "negative_prompt": "n", "chained": i > 1}
+             for i in (1, 2, 3)]
+    return {"tiktok_caption": "AI-generated", "storyboards": [{"index": 0, "clips": clips}]}
+
+
+def setup_chain(client, tmp_path, monkeypatch, fake):
+    from ugc import providers
+    from ugc.spec import product_dir, write_json
+    monkeypatch.setitem(providers._instances, config.PROVIDER, fake)
+    slug = make_product(client, tmp_path)
+    d = product_dir(slug)
+    write_json(d / "plan.json", plan3())
+    write_image(d / "avatars" / "avatar_s0_01.png", make_frame((47, 45, 179)))
+    write_json(d / "approved.json", {"avatar": "avatar_s0_01.png"})
+    return slug, d
+
+
+@needs_ffmpeg
+def test_each_clip_starts_from_the_previous_clips_last_frame(client, tmp_path, monkeypatch):
+    fake = FakeProv()
+    slug, d = setup_chain(client, tmp_path, monkeypatch, fake)
+    j = wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"], timeout=180)
+    assert j["status"] == "done", j
+    assert fake.starts == ["avatar_s0_01.png", "start_02.png", "start_03.png"]  # only clip 1 starts from the avatar
+    assert (d / "clips" / "start_02.png").exists() and (d / "clips" / "start_03.png").exists()
+
+
+@needs_ffmpeg
+def test_a_failed_chain_resumes_from_the_last_finished_clip(client, tmp_path, monkeypatch):
+    fake = FakeProv(fail_on="clip_03.mp4")
+    slug, d = setup_chain(client, tmp_path, monkeypatch, fake)
+    assert wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"],
+                timeout=180)["status"] == "error"
+    fake.fail_on, fake.calls, fake.starts = None, [], []
+    j = wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"], timeout=180)
+    assert j["status"] == "done"
+    assert fake.calls == ["clip_03.mp4"] and fake.starts == ["start_03.png"]  # chained from the clip kept on disk
+
+
+@needs_ffmpeg
+def test_changing_the_plan_discards_clips_made_for_the_old_one(client, tmp_path, monkeypatch):
+    from ugc.spec import write_json
+    fake = FakeProv()
+    slug, d = setup_chain(client, tmp_path, monkeypatch, fake)
+    wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"], timeout=180)
+    fake.calls = []
+    write_json(d / "plan.json", plan3("new prompt "))  # a regenerated plan, same avatar and storyboard number
+    j = wait(client, client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1}).json()["job"], timeout=180)
+    assert j["status"] == "done" and fake.calls == ["clip_01.mp4", "clip_02.mp4", "clip_03.mp4"]

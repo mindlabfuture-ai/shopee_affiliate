@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import hmac
 import os
 import re
@@ -19,7 +20,7 @@ from fastapi import Body, Cookie, Depends, FastAPI, File, Form, HTTPException, R
 from fastapi.responses import FileResponse
 
 from ugc import avatar as avatar_sheet
-from ugc import config, costs, fal_gen, llm, planner, providers, qa
+from ugc import config, costs, fal_gen, llm, media, planner, providers, qa
 from ugc.imaging import IMG_EXT
 from ugc.spec import (Feature, ProductSpec, list_slugs, listing_dir, listing_images, load_spec, product_dir,
                       read_json, save_spec, slugify, write_json)
@@ -500,22 +501,28 @@ def video(slug: str, body: dict = Body(...)):
 
     def run():
         manifest = d / "clips" / "manifest.json"
-        want = {"avatar": appr["avatar"], "storyboard": sb["index"]}
-        if read_json(manifest) != want:  # clips from another avatar or storyboard must not linger
+        fingerprint = hashlib.sha1(json.dumps([[c["prompt"], c["duration_s"]] for c in sb["clips"]]).encode()).hexdigest()
+        want = {"avatar": appr["avatar"], "storyboard": sb["index"], "plan": fingerprint}
+        if read_json(manifest) != want:  # clips from another avatar, storyboard or plan must not linger
             shutil.rmtree(d / "clips", ignore_errors=True)
         (d / "clips").mkdir(parents=True, exist_ok=True)
         write_json(manifest, want)
+
         def done(c) -> bool:
             f = d / "clips" / f"clip_{c['index']:02d}.mp4"
             return f.exists() and f.stat().st_size > 0
 
         todo = [c for c in sb["clips"] if not done(c)]  # finished clips are reused, never paid for twice
         costs.guard(prov.estimate_video(sum(c["duration_s"] for c in todo)))
-        clips = []
+        clips: list[Path] = []
         for c in sb["clips"]:
             path = d / "clips" / f"clip_{c['index']:02d}.mp4"
             if c in todo:
-                prov.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"], path)
+                # a chained clip starts from the previous clip's last frame, so the join is seamless;
+                # the first clip (and plans made before chaining existed) start from the approved avatar image
+                start = media.last_frame(clips[-1], d / "clips" / f"start_{c['index']:02d}.png") \
+                    if c.get("chained") and clips else image
+                prov.generate_clip(c["prompt"], c["negative_prompt"], start, c["duration_s"], path)
             clips.append(path)
         final = fal_gen.join_clips(clips, d / "final.mp4")
         rep = qa.run_video_qa(spec, listing, final, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")),
