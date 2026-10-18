@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from tests.conftest import make_frame, write_image
 from ugc import planner
-from ugc.planner import ClipPlan, PromptPlan
+from ugc.planner import ClipPlan, PromptPlan, Storyboard
 from ugc.spec import Feature, ProductSpec
 
 SPEC = ProductSpec(slug="red", name="red backless slip dress", colorway="deep red", color_hex="#b32d2f",
@@ -11,11 +11,21 @@ SPEC = ProductSpec(slug="red", name="red backless slip dress", colorway="deep re
                              Feature(name="neckline", description="gathered scoop neckline")])
 
 
+def clips():
+    return [ClipPlan(duration_s=4, shots=["front", "full_length"], motion_prompt="slow quarter turn, soft smile"),
+            ClipPlan(duration_s=6, shots=["back", "walk"], motion_prompt="turns to show the back, glances over shoulder")]
+
+
+def board(location, tod="golden hour", **over):
+    base = dict(title=f"Shoot at {location}", location=location, time_of_day=tod, mood="warm and relaxed",
+                avatar_image_prompt="standing front pose, soft natural light, full body", clips=clips())
+    return Storyboard(**{**base, **over})
+
+
 def good_plan(**over):
     base = dict(
-        setting="bright minimalist living room", avatar_image_prompt="standing front pose, soft window light, full body",
-        clips=[ClipPlan(duration_s=4, shots=["front", "full_length"], motion_prompt="slow quarter turn, soft smile"),
-               ClipPlan(duration_s=6, shots=["back", "walk"], motion_prompt="turns to show the back, glances over shoulder")],
+        storyboards=[board("tropical garden path"), board("seaside promenade", "blue hour"),
+                     board("old-town stone lane", "soft overcast")],
         hook_captions=["Elegant open-back dress"], tiktok_caption="Open-back maxi. AI-generated video",
         shopee_caption="Open-back maxi dress. AI-generated video", risks=["open back must match listing"])
     return PromptPlan(**{**base, **over})
@@ -47,13 +57,21 @@ def test_lint_clean():
 
 def test_lint_catches_violations():
     bad = good_plan(
-        clips=[ClipPlan(duration_s=5, shots=["front"], motion_prompt="make the dress brighter and she says hello"),
-               ClipPlan(duration_s=8, shots=["wat"], motion_prompt="walk")],
+        storyboards=[board("park", clips=[
+            ClipPlan(duration_s=5, shots=["front"], motion_prompt="make the dress brighter and she says hello"),
+            ClipPlan(duration_s=8, shots=["wat"], motion_prompt="walk")])],
         hook_captions=["Sexy back!"])
     msgs = " | ".join(i.msg for i in planner.lint(SPEC, bad))
     for s in ("duration must be", "unknown shot tag", "required shots not covered", "change the garment",
-              "speech/audio", "sexy"):
+              "speech/audio", "sexy", "at least 3 different outdoor storyboards"):
         assert s in msgs
+
+
+def test_lint_requires_distinct_outdoor_locations():
+    dup = good_plan(storyboards=[board("park"), board("Park", "blue hour"), board("rooftop", "soft overcast")])
+    assert "different outdoor locations" in " | ".join(i.msg for i in planner.lint(SPEC, dup))
+    same_light = good_plan(storyboards=[board("a"), board("b"), board("c")])
+    assert any(i.level == "warn" and "time of day" in i.msg for i in planner.lint(SPEC, same_light))
 
 
 def test_plan_revises_after_lint_errors_and_locks_garment(tmp_path):
@@ -63,11 +81,13 @@ def test_plan_revises_after_lint_errors_and_locks_garment(tmp_path):
     assert len(client.calls) == 2
     assert "Sexy back" in client.calls[1]["messages"][0]["content"][-1]["text"]  # feedback sent to the model
     assert not [i for i in result["lint"] if i["level"] == "error"]
-    for c in result["clips"]:
-        assert c["prompt"].startswith(result["garment_lock"])
-        assert c["params"]["generate_audio"] is False and c["params"]["aspect_ratio"] == "9:16"
-        assert c["params"]["duration"] == f"{c['duration_s']}s"
-    assert result["avatar_image"]["prompt"].startswith(result["garment_lock"])
+    assert len(result["storyboards"]) == 3
+    for sb in result["storyboards"]:
+        assert sb["avatar_image"]["prompt"].startswith(result["garment_lock"])
+        for c in sb["clips"]:
+            assert c["prompt"].startswith(result["garment_lock"])
+            assert c["params"]["generate_audio"] is False and c["params"]["aspect_ratio"] == "9:16"
+            assert c["params"]["duration"] == f"{c['duration_s']}s"
 
 
 def test_plan_gives_up_after_max_revisions(tmp_path):

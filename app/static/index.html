@@ -113,6 +113,7 @@
     <section>
       <h2>3. Avatar image <span class="note">checked against the listing before any video is made</span></h2>
       <div class="actions">
+        <label style="margin:0">Storyboard</label><select id="sbSel" style="width:auto;max-width:100%"></select>
         <label style="margin:0">Images</label><select id="avN" style="width:auto"><option>1</option><option selected>2</option><option>3</option></select>
         <button class="primary" id="avBtn">Generate</button><span class="note" id="avCost"></span>
       </div>
@@ -200,16 +201,21 @@ async function refresh() {
   $("#workspace").classList.remove("hidden");
   $("#listing").innerHTML = product.listing.map((u) => `<figure><img src="${u}"></figure>`).join("") || '<span class="note">No photos yet.</span>';
   const p = product.plan;
+  const prevSb = $("#sbSel").value;
+  $("#sbSel").innerHTML = p ? p.storyboards.map((s) => `<option value="${s.index}">${s.index + 1}. ${esc(s.title)} · ${esc(s.location)}</option>`).join("") : "";
+  if (prevSb) $("#sbSel").value = prevSb;
   $("#plan").innerHTML = !p ? "" :
-    `<div class="note">Setting: ${esc(p.setting)}</div>` +
-    p.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.shots.join(", "))}</strong><pre>${esc(c.prompt)}</pre>`).join("") +
+    p.storyboards.map((s) => `<details ${s.index === 0 ? "open" : ""}><summary><strong>Storyboard ${s.index + 1}: ${esc(s.title)}</strong> <span class="note">${esc(s.location)} · ${esc(s.time_of_day)} · ${esc(s.mood)}</span></summary>` +
+      `<div class="note">Avatar still prompt</div><pre>${esc(s.avatar_image.prompt)}</pre>` +
+      s.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.shots.join(", "))}</strong><pre>${esc(c.prompt)}</pre>`).join("") + `</details>`).join("") +
     `<strong>Hooks</strong><pre>${esc(p.hook_captions.join("\n"))}</pre><strong>TikTok caption</strong><pre>${esc(p.tiktok_caption)}</pre>` +
     `<strong>Shopee caption</strong><pre>${esc(p.shopee_caption)}</pre>` +
     (p.risks.length ? `<strong>Risks</strong><pre>${esc(p.risks.join("\n"))}</pre>` : "") +
     (p.lint.length ? p.lint.map((l) => `<div class="check">${badge(l.level === "error" ? "fail" : "warn")} ${esc(l.msg)}</div>`).join("") : `<div class="check">${badge("pass")} lint clean</div>`);
+  const sbTitle = (name) => { const m = /avatar_s(\d+)_/.exec(name); const s = m && p && p.storyboards[+m[1]]; return s ? s.title : ""; };
   $("#avatars").innerHTML = product.avatars.map((a) =>
     `<figure class="${a.name === product.approved_avatar ? "sel" : ""}"><img src="${a.url}">
-     <figcaption>${a.qa ? badge(a.qa.overall) : ""} ${esc(a.name)}</figcaption>
+     <figcaption>${a.qa ? badge(a.qa.overall) : ""} ${esc(sbTitle(a.name) || a.name)}</figcaption>
      <button data-approve="${esc(a.name)}">${a.name === product.approved_avatar ? "Approved" : "Approve"}</button></figure>`).join("");
   $("#final").innerHTML = product.final ? `<figure><video src="${product.final}?t=${Date.now()}" controls style="width:220px"></video><figcaption>final.mp4 (silent)</figcaption></figure>` : "";
   $("#qa").innerHTML = product.video_qa ? renderReport(product.video_qa) : '<span class="note">No report yet. Generate a video, or check one made elsewhere:</span>';
@@ -244,7 +250,7 @@ $("#planBtn").onclick = (e) => guarded(e.target, $("#planMsg"), async () => {
 $("#avBtn").onclick = (e) => guarded(e.target, $("#avCost"), async () => {
   const n = +$("#avN").value, est = (await post(`/api/products/${slug}/avatar/estimate`, { n })).usd;
   if (!confirm(`Generate ${n} avatar image(s)? Estimated cost $${est.toFixed(2)}.`)) return;
-  $("#avCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/avatar`, { n, confirm_usd: est }); await waitJob(job, $("#avCost"));
+  $("#avCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/avatar`, { n, storyboard: +$("#sbSel").value || 0, confirm_usd: est }); await waitJob(job, $("#avCost"));
 });
 $("#avatars").onclick = async (e) => { const n = e.target.dataset.approve; if (n) { await post(`/api/products/${slug}/approve`, { avatar: n }); refresh(); } };
 $("#avRefBtn").onclick = async () => {

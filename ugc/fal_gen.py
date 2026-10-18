@@ -29,8 +29,10 @@ def _download(url: str, dest: Path) -> Path:
     return dest
 
 
-def generate_avatar_images(prompt: str, reference_images: list[Path], n: int, out_dir: Path) -> list[Path]:
-    """reference_images: garment listing photos first, then (optionally) the saved avatar reference."""
+def generate_avatar_images(prompt: str, reference_images: list[Path], n: int, out_dir: Path,
+                           prefix: str = "avatar") -> list[Path]:
+    """reference_images: garment listing photos first, then (optionally) the saved avatar reference.
+    Files are named <prefix>_NN.png; the app uses prefix avatar_s<storyboard index>."""
     fal = _fal()
     costs.guard(costs.estimate_images(n))
     urls = [fal.upload_file(str(p)) for p in reference_images]
@@ -39,8 +41,8 @@ def generate_avatar_images(prompt: str, reference_images: list[Path], n: int, ou
         res = fal.subscribe(config.IMAGE_ENDPOINT, arguments={
             "prompt": prompt, "image_urls": urls, "num_images": 1, "aspect_ratio": "9:16", "output_format": "png"})
         costs.record("image", costs.estimate_images(1), config.IMAGE_ENDPOINT)
-        stamp = len(list(out_dir.glob("avatar_*.png"))) + 1 if out_dir.exists() else 1
-        out.append(_download(res["images"][0]["url"], out_dir / f"avatar_{stamp:02d}.png"))
+        stamp = len(list(out_dir.glob(f"{prefix}_*.png"))) + 1 if out_dir.exists() else 1
+        out.append(_download(res["images"][0]["url"], out_dir / f"{prefix}_{stamp:02d}.png"))
     return out
 
 

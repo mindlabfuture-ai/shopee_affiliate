@@ -63,7 +63,7 @@ def test_cost_gate_requires_confirmation(client, tmp_path):
     slug = make_product(client, tmp_path)
     assert client.post(f"/api/products/{slug}/avatar", json={"n": 2}).status_code == 400  # needs plan, and confirm
     from ugc.spec import product_dir, write_json
-    write_json(product_dir(slug) / "plan.json", {"avatar_image": {"prompt": "p"}, "clips": []})
+    write_json(product_dir(slug) / "plan.json", {"storyboards": [{"index": 0, "avatar_image": {"prompt": "p"}, "clips": []}]})
     r = client.post(f"/api/products/{slug}/avatar", json={"n": 2, "confirm_usd": 0})
     assert r.status_code == 400 and "confirm" in r.json()["detail"]
 
@@ -74,3 +74,11 @@ def test_daily_cap(monkeypatch):
     with pytest.raises(costs.CapExceeded):
         costs.guard(0.2)
     costs.guard(0.05)
+
+
+def test_unknown_storyboard_is_rejected(client, tmp_path):
+    slug = make_product(client, tmp_path)
+    from ugc.spec import product_dir, write_json
+    write_json(product_dir(slug) / "plan.json", {"storyboards": [{"index": 0, "avatar_image": {"prompt": "p"}, "clips": []}]})
+    r = client.post(f"/api/products/{slug}/avatar", json={"n": 1, "storyboard": 7, "confirm_usd": 5})
+    assert r.status_code == 400 and "storyboard" in r.json()["detail"]

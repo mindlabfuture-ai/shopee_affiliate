@@ -14,8 +14,10 @@ def cmd_plan(a) -> int:
     result = planner.make_plan(spec, listing_images(a.product))
     write_json(product_dir(a.product) / "plan.json", result)
     errors = [i for i in result["lint"] if i["level"] == "error"]
-    for c in result["clips"]:
-        print(f"clip {c['index']} ({c['duration_s']}s, {c['shots']}):\n  {c['prompt']}\n")
+    for sb in result["storyboards"]:
+        print(f"== storyboard {sb['index']}: {sb['title']} | {sb['location']} | {sb['time_of_day']} | {sb['mood']}")
+        for c in sb["clips"]:
+            print(f"clip {c['index']} ({c['duration_s']}s, {c['shots']}):\n  {c['prompt']}\n")
     print("hooks:", result["hook_captions"])
     print("lint:", result["lint"] or "clean")
     return 1 if errors else 0

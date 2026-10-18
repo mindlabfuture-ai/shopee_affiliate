@@ -1,6 +1,7 @@
-"""Prompt-planner agent (Claude Sonnet): reads the product + listing photos and writes the avatar-image
-prompt, per-clip video prompts and captions. Code, not the model, guarantees the garment-lock clause,
-audio-off and clip lengths; a lint pass sends violations back to the model for revision."""
+"""Prompt-planner agent (Claude Sonnet): reads the product + listing photos and writes several outdoor
+storyboards (each with its avatar-image prompt and per-clip video prompts) plus captions. Code, not the
+model, guarantees the garment-lock clause, audio-off and clip lengths; a lint pass sends violations back
+to the model for revision."""
 from __future__ import annotations
 
 import json
@@ -14,6 +15,8 @@ from .imaging import read_image, to_jpeg_b64
 from .rules import ALTER_RE, DISCLOSURE_CHECKLIST, POSES, RISKY_PHRASES, RULES_TEXT, SHOT_TAGS, VOICE_RE
 from .spec import ProductSpec
 
+MIN_STORYBOARDS = 3
+
 NEGATIVE_PROMPT = (
     "changing garment color, altered print or pattern, different neckline, warped or morphing clothing, "
     "extra or missing straps, changed hem length, glowing or sparkling fabric, text, subtitles, watermark, "
@@ -24,13 +27,20 @@ NEGATIVE_PROMPT = (
 class ClipPlan(BaseModel):
     duration_s: int  # 4, 6 or 8
     shots: list[str]
-    motion_prompt: str  # scene, camera and model motion only; never describes changes to the garment
+    motion_prompt: str  # person movement and camera only; never describes changes to the garment
+
+
+class Storyboard(BaseModel):
+    title: str
+    location: str  # a specific outdoor place, e.g. "tropical garden path"
+    time_of_day: str
+    mood: str
+    avatar_image_prompt: str  # pose, outdoor scene, lighting, framing for the still; garment is locked by code
+    clips: list[ClipPlan]
 
 
 class PromptPlan(BaseModel):
-    setting: str
-    avatar_image_prompt: str  # scene, pose, lighting, framing for the avatar still; garment is locked by code
-    clips: list[ClipPlan]
+    storyboards: list[Storyboard]
     hook_captions: list[str]
     tiktok_caption: str
     shopee_caption: str
@@ -42,17 +52,28 @@ You plan AI UGC videos for a Philippine ladies' fashion affiliate (TikTok Shop a
 meticulous: the garment in the video must look exactly like the listing.
 
 {RULES_TEXT}
-You write ONLY: the setting, the avatar still's pose/scene/lighting/framing, per-clip motion and camera
+You write ONLY: storyboards, the avatar still's pose/scene/lighting/framing, per-clip motion and camera
 prompts, and captions. The garment description is injected by code, so never describe changes to it.
 
-Format: vertical 9:16, silent, one fictional avatar. Each clip is 4, 6 or 8 seconds; clips total about the
-target duration. Cover every required shot across the clips using these tags: {', '.join(SHOT_TAGS)}.
+STORYBOARDS (required): the outfit in the uploaded photos is featured in an outdoor fashion shoot. Write
+{MIN_STORYBOARDS} to 4 clearly DIFFERENT storyboards, each its own complete shoot concept:
+- a distinct, specific outdoor location per storyboard (examples: tropical garden path, city street with
+  soft bokeh, cafe terrace, seaside promenade, park lawn, old-town stone lane, rooftop at golden hour);
+  never repeat a location;
+- vary time of day, light and mood (golden hour, bright midday shade, soft overcast, blue hour);
+- choose locations that suit this garment's style and keep the garment stable: no rain, strong wind,
+  water, mud or busy crowds that could distort or hide it; backgrounds soft and blurred, never competing
+  with the garment;
+- every storyboard covers all required shots and has its own avatar still prompt and clips;
+- the same fictional avatar and the same outfit in every storyboard; only the shoot concept changes.
+
+Format: vertical 9:16, silent. Each clip is 4, 6 or 8 seconds; a storyboard's clips total about the target
+duration. Shot tags: {', '.join(SHOT_TAGS)}.
 Pose library (pick and combine; change pose roughly every 1-2 seconds, keep motion gentle so the garment
 stays stable): {json.dumps(POSES)}.
 Rules for motion prompts: describe the person's movement and the camera only. No speech, no music, no
-text overlays, no brand names. Prefer soft, bright, blurred backgrounds that do not compete with the
-garment. Use fabric_swish only for flowing fabric. If the listing shows pockets, include one natural
-pocket pose. Include one full-length shot where the hem is visible.
+text overlays, no brand names. Use fabric_swish only for flowing fabric. If the listing shows pockets,
+include one natural pocket pose. Include one full-length shot where the hem is visible.
 Captions: truthful, matching the listing. Hooks: short ({{language}}), no exaggerated-result claims, no
 'sexy'. Shopee and TikTok captions should include the AI-generated disclosure note.
 `risks`: list anything about this product that could cause garment drift or a policy problem
@@ -85,22 +106,35 @@ def lock_clause(spec: ProductSpec) -> str:
 
 def lint(spec: ProductSpec, plan: PromptPlan) -> list[Issue]:
     issues: list[Issue] = []
-    total = sum(c.duration_s for c in plan.clips)
-    for i, c in enumerate(plan.clips, 1):
-        if c.duration_s not in config.CLIP_SECONDS:
-            issues.append(Issue("error", f"clip {i}: duration must be one of {config.CLIP_SECONDS}, got {c.duration_s}"))
-        for tag in c.shots:
-            if tag not in SHOT_TAGS:
-                issues.append(Issue("error", f"clip {i}: unknown shot tag {tag!r}"))
-    if abs(total - spec.target_duration_s) > 2:
-        issues.append(Issue("error", f"clips total {total}s, target is {spec.target_duration_s}s (+/-2)"))
-    covered = {t for c in plan.clips for t in c.shots}
-    missing = [s for s in spec.required_shots if s not in covered]
-    if missing:
-        issues.append(Issue("error", f"required shots not covered: {missing}"))
+    sbs = plan.storyboards
+    if len(sbs) < MIN_STORYBOARDS:
+        issues.append(Issue("error", f"need at least {MIN_STORYBOARDS} different outdoor storyboards, got {len(sbs)}"))
+    locs = [s.location.strip().lower() for s in sbs]
+    if len(set(locs)) < len(locs):
+        issues.append(Issue("error", "storyboards must use different outdoor locations"))
+    if len(sbs) > 1 and len({s.time_of_day.strip().lower() for s in sbs}) == 1:
+        issues.append(Issue("warn", "all storyboards share one time of day; vary the light"))
 
-    texts = {"avatar_image_prompt": plan.avatar_image_prompt,
-             **{f"clip {i} motion": c.motion_prompt for i, c in enumerate(plan.clips, 1)}}
+    texts: dict[str, str] = {}
+    for n, sb in enumerate(sbs, 1):
+        tag = f"storyboard {n}"
+        total = sum(c.duration_s for c in sb.clips)
+        if abs(total - spec.target_duration_s) > 2:
+            issues.append(Issue("error", f"{tag}: clips total {total}s, target is {spec.target_duration_s}s (+/-2)"))
+        covered = {t for c in sb.clips for t in c.shots}
+        missing = [s for s in spec.required_shots if s not in covered]
+        if missing:
+            issues.append(Issue("error", f"{tag}: required shots not covered: {missing}"))
+        for i, c in enumerate(sb.clips, 1):
+            if c.duration_s not in config.CLIP_SECONDS:
+                issues.append(Issue("error", f"{tag} clip {i}: duration must be one of {config.CLIP_SECONDS}, got {c.duration_s}"))
+            for t in c.shots:
+                if t not in SHOT_TAGS:
+                    issues.append(Issue("error", f"{tag} clip {i}: unknown shot tag {t!r}"))
+            texts[f"{tag} clip {i} motion"] = c.motion_prompt
+        texts[f"{tag} avatar_image_prompt"] = sb.avatar_image_prompt
+        texts[f"{tag} location"] = f"{sb.location} {sb.mood}"
+
     for name, t in texts.items():
         if m := ALTER_RE.search(t):
             issues.append(Issue("error", f"{name}: asks to change the garment ('{m.group(0)}')"))
@@ -129,17 +163,20 @@ def assemble(spec: ProductSpec, plan: PromptPlan, issues: list[Issue]) -> dict:
         "product": spec.slug,
         "model": config.CLAUDE_MODEL,
         "garment_lock": lock,
-        "avatar_image": {"endpoint": config.IMAGE_ENDPOINT, "prompt": f"{lock} {plan.avatar_image_prompt}"},
-        "clips": [
-            {"index": i, "duration_s": c.duration_s, "shots": c.shots,
-             "endpoint": config.VIDEO_ENDPOINT,
-             "prompt": f"{lock} {c.motion_prompt}",
-             "negative_prompt": NEGATIVE_PROMPT,
-             "params": {"aspect_ratio": "9:16", "resolution": config.VIDEO_RESOLUTION,
-                        "duration": f"{c.duration_s}s", "generate_audio": False}}
-            for i, c in enumerate(plan.clips, 1)
+        "storyboards": [
+            {
+                "index": n, "title": sb.title, "location": sb.location, "time_of_day": sb.time_of_day, "mood": sb.mood,
+                "avatar_image": {"endpoint": config.IMAGE_ENDPOINT, "prompt": f"{lock} {sb.avatar_image_prompt}"},
+                "clips": [
+                    {"index": i, "duration_s": c.duration_s, "shots": c.shots, "endpoint": config.VIDEO_ENDPOINT,
+                     "prompt": f"{lock} {c.motion_prompt}", "negative_prompt": NEGATIVE_PROMPT,
+                     "params": {"aspect_ratio": "9:16", "resolution": config.VIDEO_RESOLUTION,
+                                "duration": f"{c.duration_s}s", "generate_audio": False}}
+                    for i, c in enumerate(sb.clips, 1)
+                ],
+            }
+            for n, sb in enumerate(plan.storyboards)
         ],
-        "setting": plan.setting,
         "hook_captions": plan.hook_captions,
         "tiktok_caption": plan.tiktok_caption,
         "shopee_caption": plan.shopee_caption,
@@ -153,12 +190,13 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
     client = client or llm.get_client()
     content: list[dict] = [{"type": "text", "text": (
         "Product spec (JSON):\n" + spec.model_dump_json(indent=2) +
-        "\n\nListing photos follow. Plan the video." + (f"\nWrite hooks in {spec.language}." if spec.language else ""))}]
+        "\n\nListing photos follow. Plan the outdoor fashion shoot storyboards for this outfit."
+        + (f"\nWrite hooks in {spec.language}." if spec.language else ""))}]
     for i, p in enumerate(listing[:6], 1):
         content += [{"type": "text", "text": f"LISTING PHOTO {i}"}, llm.image_block(to_jpeg_b64(read_image(p), 1024))]
 
     system = SYSTEM.replace("{language}", spec.language)
-    plan = llm.parse(client, PromptPlan, system, content)
+    plan = llm.parse(client, PromptPlan, system, content, max_tokens=12000)
     issues = lint(spec, plan)
     for _ in range(max_revisions):
         errors = [i for i in issues if i.level == "error"]
@@ -166,6 +204,6 @@ def make_plan(spec: ProductSpec, listing: list[Path], client=None, max_revisions
             break
         feedback = ("Your previous plan violated these rules. Return a corrected full plan.\n"
                     + "\n".join(f"- {e.msg}" for e in errors) + "\n\nPrevious plan:\n" + plan.model_dump_json(indent=2))
-        plan = llm.parse(client, PromptPlan, system, content + [{"type": "text", "text": feedback}])
+        plan = llm.parse(client, PromptPlan, system, content + [{"type": "text", "text": feedback}], max_tokens=12000)
         issues = lint(spec, plan)
     return assemble(spec, plan, issues)

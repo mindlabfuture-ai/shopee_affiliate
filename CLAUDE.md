@@ -68,7 +68,7 @@ fal has an official MCP server for running models (generation): https://fal.ai/d
 Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `python -m pytest`.
 
 - `ugc/rules.py` encodes the compliance rules above; keep it in sync with this file.
-- `ugc/planner.py`: Claude Sonnet plans prompts. **Code**, not the model, prepends the garment-lock clause,
+- `ugc/planner.py`: Claude Sonnet plans 3-4 distinct outdoor storyboards (lint enforces >=3, different locations, all required shots); each has its own avatar still prompt + clips. Avatar files are named avatar_s<storyboard>_NN.png and the approved one decides which clips are generated. **Code**, not the model, prepends the garment-lock clause,
   forces `generate_audio: false`, 9:16, clip lengths of 4/6/8 s, and lints for alteration verbs, speech/audio and
   risky caption words (revises up to twice).
 - `ugc/qa/`: technical (ffmpeg), color (CIELAB), vision (Claude). `python -m ugc qa <product> <video|image>`.

@@ -1,7 +1,7 @@
 # UGC Studio
 
 Local tool for making garment-faithful AI UGC videos for Shopee and TikTok Shop (ladies' fashion).
-Upload the real listing photos, let Claude plan the prompts, generate silent clips on fal, and gate every
+Upload the real listing photos, let Claude plan 3-4 different outdoor fashion-shoot storyboards (each with its own location, avatar still and clips), generate silent clips on fal, and gate every
 step with a QA check against the listing.
 
 ```

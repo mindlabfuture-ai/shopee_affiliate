@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import shutil
 import threading
 import traceback
@@ -186,16 +187,17 @@ def avatar(slug: str, body: dict = Body(...)):
     p = read_json(d / "plan.json")
     if not p:
         raise HTTPException(400, "generate a plan first")
+    sb_idx = _storyboard(p, body.get("storyboard", 0))["index"]
     spec, listing = load_spec(slug), listing_images(slug)
     avatar_ref = config.DATA_DIR / "avatar_reference.png"
     refs = listing[:3] + ([avatar_ref] if avatar_ref.exists() else [])
-    prompt = p["avatar_image"]["prompt"]
+    prompt = p["storyboards"][sb_idx]["avatar_image"]["prompt"]
     if avatar_ref.exists():
         prompt += " The last reference image is the avatar: keep her face, hair and body the same."
 
     def run():
         costs.guard(est)
-        imgs = fal_gen.generate_avatar_images(prompt, refs, n, d / "avatars")
+        imgs = fal_gen.generate_avatar_images(prompt, refs, n, d / "avatars", prefix=f"avatar_s{sb_idx}")
         for img in imgs:  # cheap gate: check each still before any video money is spent
             try:
                 rep = qa.run_image_qa(spec, listing, img, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")))
@@ -226,12 +228,29 @@ def approve(slug: str, body: dict = Body(...)):
 
 
 # ---------- video ----------
+def _storyboard(plan: dict, idx) -> dict:
+    sbs = plan.get("storyboards") or []
+    try:
+        return sbs[int(idx)]
+    except (IndexError, ValueError, TypeError):
+        raise HTTPException(400, "unknown storyboard; regenerate the plan")
+
+
+def _approved_storyboard(d: Path, plan: dict) -> dict:
+    """The storyboard the approved avatar was made for (from its file name), else the first."""
+    name = (read_json(d / "approved.json") or {}).get("avatar", "")
+    m = re.match(r"avatar_s(\d+)_", name)
+    return _storyboard(plan, m.group(1) if m else 0)
+
+
 @app.post("/api/products/{slug}/video/estimate", dependencies=[Depends(require_auth)])
 def video_estimate(slug: str):
-    p = read_json(product_dir(slug) / "plan.json")
+    d = product_dir(slug)
+    p = read_json(d / "plan.json")
     if not p:
         raise HTTPException(400, "generate a plan first")
-    return {"usd": costs.estimate_video(sum(c["duration_s"] for c in p["clips"])), "seconds": sum(c["duration_s"] for c in p["clips"])}
+    seconds = sum(c["duration_s"] for c in _approved_storyboard(d, p)["clips"])
+    return {"usd": costs.estimate_video(seconds), "seconds": seconds}
 
 
 @app.post("/api/products/{slug}/video", dependencies=[Depends(require_auth)])
@@ -240,7 +259,8 @@ def video(slug: str, body: dict = Body(...)):
     p, appr = read_json(d / "plan.json"), read_json(d / "approved.json")
     if not p or not appr:
         raise HTTPException(400, "need a plan and an approved avatar image")
-    est = costs.estimate_video(sum(c["duration_s"] for c in p["clips"]))
+    sb = _approved_storyboard(d, p)
+    est = costs.estimate_video(sum(c["duration_s"] for c in sb["clips"]))
     if float(body.get("confirm_usd", 0)) < est:
         raise HTTPException(400, f"confirm the estimated cost (${est:.2f})")
     spec, listing = load_spec(slug), listing_images(slug)
@@ -248,8 +268,9 @@ def video(slug: str, body: dict = Body(...)):
 
     def run():
         costs.guard(est)
+        shutil.rmtree(d / "clips", ignore_errors=True)  # clips from a previous storyboard must not linger
         clips = [fal_gen.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"],
-                                       d / "clips" / f"clip_{c['index']:02d}.mp4") for c in p["clips"]]
+                                       d / "clips" / f"clip_{c['index']:02d}.mp4") for c in sb["clips"]]
         final = fal_gen.join_clips(clips, d / "final.mp4")
         rep = qa.run_video_qa(spec, listing, final, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")),
                               caption=p["tiktok_caption"])
