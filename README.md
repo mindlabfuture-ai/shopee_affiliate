@@ -27,6 +27,18 @@ generate avatar images (each is checked before you spend on video), approve one,
 the QA report. Every paid step shows an estimated cost and asks first; `UGC_DAILY_CAP_USD` (default 15) stops spend.
 You can also check a video made elsewhere (for example in Flow) with "Check this video".
 
+## Manual mode (no generation spend)
+
+Make the images and clips in tools you already use and let the app do the planning and checking:
+
+1. Add the product, click **Generate plan**, and click a prompt to copy it.
+2. Make the avatar stills in ChatGPT with the storyboard's avatar prompt and the listing photo, then use
+   **Upload and check** in step 3. Each still gets the same garment check as a generated one. Approve one.
+3. Make the clips in Flow (or any tool) from that still. Pick them all in **Join and check** in step 4:
+   they are joined in file-name order (clip1, clip2, ...), resized to the first clip, audio stripped, then QA'd.
+4. Read the QA report in step 5. Only Claude calls cost money (about $0.10 per video), and manual mode works
+   without `FAL_KEY`.
+
 ## CLI
 
 ```bash

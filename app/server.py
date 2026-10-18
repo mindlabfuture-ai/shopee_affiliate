@@ -12,6 +12,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import cv2
+import numpy as np
 from fastapi import Body, Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 
@@ -26,6 +28,8 @@ pool = ThreadPoolExecutor(max_workers=2)
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 MAX_UPLOAD = 25 * 1024 * 1024
+MAX_VIDEO = 300 * 1024 * 1024
+VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
 
 
 # ---------- auth ----------
@@ -110,7 +114,7 @@ def _state(slug: str) -> dict:
         "avatars": [{"url": rel(p), "name": p.name, "qa": read_json(d / "qa" / f"{p.stem}.json")}
                     for p in sorted((d / "avatars").glob("avatar_*.png"))] if (d / "avatars").exists() else [],
         "approved_avatar": (read_json(d / "approved.json") or {}).get("avatar"),
-        "clips": [rel(p) for p in sorted((d / "clips").glob("clip_*.mp4"))] if (d / "clips").exists() else [],
+        "clips": [rel(p) for p in sorted((d / "clips").glob("clip_*.*"))] if (d / "clips").exists() else [],
         "final": rel(d / "final.mp4") if (d / "final.mp4").exists() else None,
         "video_qa": read_json(d / "qa" / "final.json"),
     }
@@ -172,6 +176,15 @@ def plan(slug: str):
 
 
 # ---------- avatar images ----------
+def _qa_avatar(d: Path, spec: ProductSpec, listing: list[Path], img: Path) -> None:
+    try:
+        rep = qa.run_image_qa(spec, listing, img, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")))
+        write_json(d / "qa" / f"{img.stem}.json", rep.to_dict())
+    except Exception as e:
+        write_json(d / "qa" / f"{img.stem}.json", {"overall": "error", "error": str(e), "checks": []})
+
+
+
 @app.post("/api/products/{slug}/avatar/estimate", dependencies=[Depends(require_auth)])
 def avatar_estimate(slug: str, body: dict = Body(default={})):
     return {"usd": costs.estimate_images(int(body.get("n", 2)))}
@@ -199,14 +212,76 @@ def avatar(slug: str, body: dict = Body(...)):
         costs.guard(est)
         imgs = fal_gen.generate_avatar_images(prompt, refs, n, d / "avatars", prefix=f"avatar_s{sb_idx}")
         for img in imgs:  # cheap gate: check each still before any video money is spent
-            try:
-                rep = qa.run_image_qa(spec, listing, img, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")))
-                write_json(d / "qa" / f"{img.stem}.json", rep.to_dict())
-            except Exception as e:
-                write_json(d / "qa" / f"{img.stem}.json", {"overall": "error", "error": str(e), "checks": []})
+            _qa_avatar(d, spec, listing, img)
         return [i.name for i in imgs]
 
     return {"job": start_job(f"avatar {slug}", run)}
+
+
+@app.post("/api/products/{slug}/avatar/upload", dependencies=[Depends(require_auth)])
+def avatar_upload(slug: str, storyboard: int = Form(0), photos: list[UploadFile] = File(...)):
+    """Manual mode: avatar stills made elsewhere (e.g. ChatGPT). Checked against the listing like generated ones."""
+    d, spec, listing = product_dir(slug), load_spec(slug), listing_images(slug)
+    plan_ = read_json(d / "plan.json")
+    if plan_:
+        _storyboard(plan_, storyboard)
+    decoded = []
+    for f in photos:
+        if Path(f.filename or "").suffix.lower() not in IMG_EXT:
+            raise HTTPException(400, f"unsupported image type: {f.filename}")
+        data = f.file.read(MAX_UPLOAD + 1)
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, f"{f.filename} is over 25 MB")
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(400, f"cannot read image: {f.filename}")
+        decoded.append(img)
+    adir = d / "avatars"
+    adir.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for img in decoded:
+        n = len(list(adir.glob(f"avatar_s{storyboard}_*.png"))) + 1
+        path = adir / f"avatar_s{storyboard}_{n:02d}.png"
+        cv2.imwrite(str(path), img)
+        saved.append(path)
+
+    def run():
+        for img in saved:
+            _qa_avatar(d, spec, listing, img)
+        return [i.name for i in saved]
+
+    return {"job": start_job(f"avatar upload {slug}", run)}
+
+
+@app.post("/api/products/{slug}/clips/upload", dependencies=[Depends(require_auth)])
+def clips_upload(slug: str, videos: list[UploadFile] = File(...), caption: str = Form("")):
+    """Manual mode: clips made elsewhere (e.g. Flow), in playing order. Joined, audio stripped, then QA'd."""
+    d, spec, listing = product_dir(slug), load_spec(slug), listing_images(slug)
+    blobs = []
+    for f in videos:
+        ext = Path(f.filename or "").suffix.lower()
+        if ext not in VIDEO_EXT:
+            raise HTTPException(400, f"unsupported video type: {f.filename}")
+        data = f.file.read(MAX_VIDEO + 1)
+        if len(data) > MAX_VIDEO:
+            raise HTTPException(413, f"{f.filename} is over 300 MB")
+        blobs.append((ext, data))
+    shutil.rmtree(d / "clips", ignore_errors=True)  # replaces any earlier clips
+    (d / "clips").mkdir(parents=True)
+    paths = []
+    for i, (ext, data) in enumerate(blobs, 1):
+        paths.append(d / "clips" / f"clip_{i:02d}{ext}")
+        paths[-1].write_bytes(data)
+    plan_ = read_json(d / "plan.json") or {}
+
+    def run():
+        final = fal_gen.join_clips(paths, d / "final.mp4")
+        rep = qa.run_video_qa(spec, listing, final, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")),
+                              caption=caption or plan_.get("tiktok_caption"))
+        write_json(d / "qa" / "final.json", rep.to_dict())
+        return rep.to_dict()
+
+    return {"job": start_job(f"clips upload {slug}", run)}
 
 
 @app.post("/api/avatar-reference", dependencies=[Depends(require_auth)])

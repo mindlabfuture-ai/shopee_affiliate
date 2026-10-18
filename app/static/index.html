@@ -37,6 +37,7 @@
   .thumbs img, .thumbs video { width: 150px; border-radius: 6px; border: 1px solid var(--line); display: block; }
   .thumbs figcaption { font-size: 12px; color: var(--muted); }
   .sel img { outline: 3px solid var(--accent); }
+  #plan pre { cursor: copy; }
   pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
         padding: 10px; font-size: 13px; margin: 6px 0; }
   .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; }
@@ -118,12 +119,16 @@
         <button class="primary" id="avBtn">Generate</button><span class="note" id="avCost"></span>
       </div>
       <div class="actions"><span class="note">Saved avatar (same person across products):</span><input type="file" id="avRef" accept="image/*" style="width:auto"><button id="avRefBtn">Save</button></div>
+      <div class="actions"><span class="note">Made the images elsewhere (e.g. ChatGPT) with the storyboard prompt? Upload them for the same check:</span>
+        <input type="file" id="avUp" accept="image/*" multiple style="width:auto"><button id="avUpBtn">Upload and check</button><span class="note" id="avUpMsg"></span></div>
       <div class="thumbs" id="avatars"></div>
     </section>
 
     <section>
       <h2>4. Video <span class="note">silent clips from the approved avatar, joined with audio stripped</span></h2>
       <div class="actions"><button class="primary" id="vidBtn">Generate video</button><span class="note" id="vidCost"></span></div>
+      <div class="actions"><span class="note">Made the clips elsewhere (e.g. Flow)? Pick them all; they are joined in file-name order (clip1, clip2, ...), audio stripped, then checked:</span>
+        <input type="file" id="clipUp" accept="video/*" multiple style="width:auto"><button id="clipUpBtn">Join and check</button><span class="note" id="clipUpMsg"></span></div>
       <div class="thumbs" id="final"></div>
     </section>
 
@@ -179,7 +184,7 @@ async function boot() {
   const missing = Object.entries(s.keys).filter(([, v]) => !v).map(([k]) => k.toUpperCase());
   const kw = $("#keyWarn");
   kw.classList.toggle("hidden", !missing.length);
-  kw.textContent = missing.length ? `Missing API key(s): ${missing.join(", ")}. Set them in your shell before starting the app.` : "";
+  kw.textContent = missing.length ? `Missing API key(s): ${missing.join(", ")}. Set them in your shell before starting the app.` + (missing.includes("FAL") ? " Manual uploads work without FAL_KEY." : "") : "";
   const sel = $("#productSelect");
   sel.innerHTML = s.products.map((p) => `<option ${p === slug ? "selected" : ""}>${esc(p)}</option>`).join("") || "<option value=''>(none yet)</option>";
   if (!slug && s.products.length) slug = s.products[0];
@@ -265,6 +270,25 @@ $("#vidBtn").onclick = (e) => guarded(e.target, $("#vidCost"), async () => {
 $("#qaBtn").onclick = (e) => guarded(e.target, null, async () => {
   const f = $("#qaFile").files[0]; if (!f) return; const fd = new FormData(); fd.append("video", f);
   const { job } = await api(`/api/products/${slug}/qa`, { method: "POST", body: fd }); $("#qa").textContent = "checking…"; await waitJob(job);
+});
+
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+$("#plan").onclick = async (e) => {
+  const pre = e.target.closest("pre"); if (!pre) return;
+  try { await navigator.clipboard.writeText(pre.innerText); pre.style.outline = "2px solid var(--ok)"; setTimeout(() => (pre.style.outline = ""), 600); } catch {}
+};
+$("#avUpBtn").onclick = (e) => guarded(e.target, $("#avUpMsg"), async () => {
+  const files = [...$("#avUp").files]; if (!files.length) return;
+  const fd = new FormData(); fd.append("storyboard", $("#sbSel").value || "0"); files.forEach((f) => fd.append("photos", f));
+  $("#avUpMsg").textContent = "working…"; const { job } = await api(`/api/products/${slug}/avatar/upload`, { method: "POST", body: fd });
+  await waitJob(job, $("#avUpMsg")); $("#avUpMsg").textContent = ""; $("#avUp").value = "";
+});
+$("#clipUpBtn").onclick = (e) => guarded(e.target, $("#clipUpMsg"), async () => {
+  const files = [...$("#clipUp").files].sort(byName); if (!files.length) return;
+  const fd = new FormData(); files.forEach((f) => fd.append("videos", f));
+  $("#clipUpMsg").textContent = "working… order: " + files.map((f) => f.name).join(" → ");
+  const { job } = await api(`/api/products/${slug}/clips/upload`, { method: "POST", body: fd });
+  await waitJob(job, null); $("#clipUpMsg").textContent = ""; $("#clipUp").value = "";
 });
 
 boot().catch(() => {});

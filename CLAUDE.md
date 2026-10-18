@@ -79,3 +79,4 @@ Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `
 - Secrets only via env vars (ANTHROPIC_API_KEY, FAL_KEY, APP_PASSWORD). Never commit them or `data/`.
 - Not yet verified live: real fal generation and real Claude calls (no keys in the build session). Tests mock both.
 - Possible later: deploy API on Railway and UI on Netlify (see earlier cost estimate); not needed for local use.
+- Manual mode: `/avatar/upload` (stills from ChatGPT, QA'd like generated ones) and `/clips/upload` (clips from Flow: joined in name order, scaled to the first clip, audio stripped, QA'd). Works without FAL_KEY.

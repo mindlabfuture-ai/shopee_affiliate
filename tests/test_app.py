@@ -82,3 +82,68 @@ def test_unknown_storyboard_is_rejected(client, tmp_path):
     write_json(product_dir(slug) / "plan.json", {"storyboards": [{"index": 0, "avatar_image": {"prompt": "p"}, "clips": []}]})
     r = client.post(f"/api/products/{slug}/avatar", json={"n": 1, "storyboard": 7, "confirm_usd": 5})
     assert r.status_code == 400 and "storyboard" in r.json()["detail"]
+
+
+# ---------- manual mode ----------
+import time
+
+import cv2
+
+from tests.conftest import needs_ffmpeg, write_video
+
+
+def wait(client, job, timeout=60):
+    end = time.time() + timeout
+    while time.time() < end:
+        j = client.get(f"/api/jobs/{job}").json()
+        if j["status"] != "running":
+            return j
+        time.sleep(0.2)
+    raise AssertionError("job timed out")
+
+
+def test_avatar_upload_is_checked_and_listed(client, tmp_path):
+    slug = make_product(client, tmp_path)
+    with png(tmp_path).open("rb") as f:
+        r = client.post(f"/api/products/{slug}/avatar/upload", data={"storyboard": "0"},
+                        files=[("photos", ("mine.png", f, "image/png"))])
+    assert r.status_code == 200
+    j = wait(client, r.json()["job"])
+    assert j["status"] == "done" and j["result"] == ["avatar_s0_01.png"]
+    st = client.get(f"/api/products/{slug}").json()
+    assert st["avatars"][0]["name"] == "avatar_s0_01.png"
+    assert st["avatars"][0]["qa"]["overall"] in ("pass", "warn")  # same gate as generated stills
+    assert client.post(f"/api/products/{slug}/approve", json={"avatar": "avatar_s0_01.png"}).status_code == 200
+
+
+def test_avatar_upload_rejects_bad_files(client, tmp_path):
+    slug = make_product(client, tmp_path)
+    bad_type = client.post(f"/api/products/{slug}/avatar/upload", files=[("photos", ("a.gif", b"x", "image/gif"))])
+    corrupt = client.post(f"/api/products/{slug}/avatar/upload", files=[("photos", ("a.png", b"not a png", "image/png"))])
+    assert bad_type.status_code == 400 and corrupt.status_code == 400
+
+
+@needs_ffmpeg
+def test_clip_upload_joins_mixed_sizes_strips_audio_and_checks(client, tmp_path):
+    slug = make_product(client, tmp_path)
+    red = (47, 45, 179)
+    a = write_video(tmp_path / "clip1.mp4", [make_frame(red) for _ in range(36)], audio=True)  # 360x640 with audio
+    b = write_video(tmp_path / "clip2.mp4", [make_frame(red, size=(540, 960)) for _ in range(36)])  # different size
+    files = [("videos", (p.name, p.open("rb"), "video/mp4")) for p in (a, b)]
+    r = client.post(f"/api/products/{slug}/clips/upload", files=files)
+    assert r.status_code == 200
+    j = wait(client, r.json()["job"], timeout=120)
+    assert j["status"] == "done", j
+    names = {c["name"]: c for c in j["result"]["checks"]}
+    assert names["audio"]["status"] == "pass"  # stripped by the join
+    assert names["garment_color"]["status"] == "pass"
+    st = client.get(f"/api/products/{slug}").json()
+    assert st["final"] and len(st["clips"]) == 2
+    cap = cv2.VideoCapture(str(config.DATA_DIR / "products" / slug / "final.mp4"))
+    assert (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))) == (360, 640)
+
+
+def test_clip_upload_rejects_bad_type(client, tmp_path):
+    slug = make_product(client, tmp_path)
+    r = client.post(f"/api/products/{slug}/clips/upload", files=[("videos", ("x.exe", b"x", "application/octet-stream"))])
+    assert r.status_code == 400

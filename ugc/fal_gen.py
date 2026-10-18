@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -60,17 +59,35 @@ def generate_clip(prompt: str, negative_prompt: str, image: Path, duration_s: in
     return _download(res["video"]["url"], out_path)
 
 
+def _video_size(path: Path) -> tuple[int, int]:
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=width,height", "-of", "csv=p=0:s=x", str(path)], capture_output=True, text=True).stdout.strip()
+    try:
+        w, h = (int(x) for x in out.split("x"))
+    except ValueError:
+        raise FalError(f"{path.name} has no readable video stream")
+    return w - w % 2, h - h % 2
+
+
 def join_clips(clips: list[Path], out_path: Path) -> Path:
-    """Concatenate and strip audio, re-encoding so mismatched clips join cleanly."""
+    """Concatenate and strip audio. Every clip is scaled/padded to the first clip's size and 24 fps, so clips
+    from different tools (fal, Flow, Kling, a phone) join cleanly."""
     if not shutil.which("ffmpeg"):
         raise FalError("ffmpeg is not installed")
+    if not clips:
+        raise FalError("no clips to join")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as td:
-        lst = Path(td) / "list.txt"
-        lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(lst),
-               "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(out_path)]
-        p = subprocess.run(cmd, capture_output=True, text=True)
-        if p.returncode:
-            raise FalError(f"ffmpeg join failed: {p.stderr[-400:]}")
+    w, h = _video_size(clips[0])
+    inputs: list[str] = []
+    parts: list[str] = []
+    for i, c in enumerate(clips):
+        inputs += ["-i", str(c)]
+        parts.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+                     f"setsar=1,fps=24,format=yuv420p[v{i}]")
+    graph = ";".join(parts) + ";" + "".join(f"[v{i}]" for i in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=0[out]"
+    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs, "-filter_complex", graph, "-map", "[out]",
+           "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", str(out_path)]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode:
+        raise FalError(f"ffmpeg join failed: {p.stderr[-400:]}")
     return out_path
