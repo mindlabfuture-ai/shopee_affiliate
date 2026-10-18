@@ -51,7 +51,11 @@
   #sheetPrompts pre { cursor: copy; }
   a.dl { display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600; }
   #clipLinks a { color: var(--accent); }
-  #login { max-width: 320px; margin: 18vh auto; }
+  #login { max-width: 360px; margin: 14vh auto; padding: 0 16px; }
+  label.show { display: flex; gap: 8px; align-items: center; margin-top: 10px; cursor: pointer; }
+  label.show input { width: auto; }
+  #loginBtn { min-height: 44px; min-width: 110px; }
+  #pw { font-size: 18px; padding: 12px; }
   .note { color: var(--muted); font-size: 13px; }
   .errbox { padding: 10px 14px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); background: var(--card); font-size: 14px; display: flex; gap: 12px; align-items: baseline; justify-content: space-between; }
   .banner { padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px dashed var(--warn); color: var(--warn); font-size: 13px; }
@@ -61,9 +65,14 @@
 <div id="login" class="hidden">
   <section>
     <h2>UGC Studio</h2>
-    <label for="pw">Password</label>
-    <input id="pw" type="password" autocomplete="current-password">
-    <div class="actions"><button class="primary" id="loginBtn">Sign in</button><span id="loginErr" class="fail"></span></div>
+    <form id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="ugc-studio" autocomplete="username" hidden>
+      <label for="pw">Password</label>
+      <input id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="off"
+             autocorrect="off" spellcheck="false" enterkeyhint="go" inputmode="text">
+      <label class="show"><input type="checkbox" id="showPw"> Show what I type</label>
+      <div class="actions"><button class="primary" id="loginBtn" type="submit">Sign in</button><span id="loginErr" class="fail"></span></div>
+    </form>
   </section>
 </div>
 
@@ -181,10 +190,16 @@ async function api(path, opts = {}) {
 }
 const post = (p, b) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b ?? {}) });
 
-function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); }
+function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); setTimeout(() => $("#pw").focus(), 50); }
 async function login() {
-  try { await post("/api/login", { password: $("#pw").value }); $("#login").classList.add("hidden"); boot(); }
-  catch (e) { $("#loginErr").textContent = e.message; }
+  $("#loginErr").textContent = "";
+  // not api(): that helper turns every 401 into "login required" and would hide the server's message
+  const r = await fetch("/api/login", { method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("#pw").value }) });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { $("#loginErr").textContent = body.detail || "Could not sign in."; $("#pw").focus(); $("#pw").select(); return; }
+  $("#pw").value = ""; $("#login").classList.add("hidden");
+  boot().catch(() => {});
 }
 
 async function waitJob(id, msgEl) {
@@ -262,8 +277,8 @@ async function refresh() {
 }
 
 $("#errClose").onclick = () => $("#errBox").classList.add("hidden");
-$("#loginBtn").onclick = login;
-$("#pw").onkeydown = (e) => e.key === "Enter" && login();
+$("#loginForm").onsubmit = (e) => { e.preventDefault(); login(); };
+$("#showPw").onchange = (e) => { $("#pw").type = e.target.checked ? "text" : "password"; $("#pw").focus(); };
 $("#newBtn").onclick = () => $("#newForm").classList.toggle("hidden");
 $("#productSelect").onchange = (e) => { slug = e.target.value; refresh(); };
 $("#avN").onchange = () => refresh();

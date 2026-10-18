@@ -70,10 +70,15 @@ def login(response: Response, body: dict = Body(...)):
         now = time.time()
         _failures[:] = [t for t in _failures if now - t < LOGIN_WINDOW_S]
         if len(_failures) >= LOGIN_MAX_FAILURES:  # single-user app: one global lockout is enough
-            raise HTTPException(429, "too many failed logins; try again in a few minutes")
+            wait = max(1, int(LOGIN_WINDOW_S - (now - _failures[0])))
+            raise HTTPException(429, f"Too many wrong passwords. Try again in {-(-wait // 60)} min.",
+                                headers={"Retry-After": str(wait)})
         if not hmac.compare_digest(str(body.get("password", "")), pw):
             _failures.append(now)
-            raise HTTPException(401, "wrong password")
+            left = LOGIN_MAX_FAILURES - len(_failures)
+            raise HTTPException(401, f"Wrong password. {left} attempt{'s' if left != 1 else ''} left before a "
+                                     f"{LOGIN_WINDOW_S // 60}-minute lockout." if left else
+                                     f"Wrong password. Locked for {LOGIN_WINDOW_S // 60} minutes.")
         _failures.clear()
         response.set_cookie("ugc_session", _token(pw), httponly=True, samesite="strict", max_age=30 * 86400,
                             secure=os.environ.get("UGC_SECURE_COOKIE") == "1")

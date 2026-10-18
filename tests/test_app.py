@@ -228,3 +228,31 @@ def test_video_failure_is_saved_and_the_retry_only_pays_for_the_missing_clip(cli
     assert fake.calls == ["clip_01.mp4", "clip_02.mp4", "clip_02.mp4"]  # clip 1 was not generated (or paid for) again
     st = client.get(f"/api/products/{slug}").json()
     assert st["final"] and st["last_error"] is None
+
+
+def test_wrong_password_says_how_many_attempts_are_left_and_how_long_a_lockout_lasts(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "s3cret")
+    from app import server
+    importlib.reload(server)
+    c = TestClient(server.app)
+    first = c.post("/api/login", json={"password": "bad"})
+    assert first.status_code == 401 and "7 attempts left" in first.json()["detail"]
+    for _ in range(6):
+        last = c.post("/api/login", json={"password": "bad"})
+    assert "1 attempt left" in last.json()["detail"]
+    final = c.post("/api/login", json={"password": "bad"})
+    assert final.status_code == 401 and "Locked for 10 minutes" in final.json()["detail"]
+    locked = c.post("/api/login", json={"password": "s3cret"})
+    assert locked.status_code == 429 and "Try again in" in locked.json()["detail"]
+    assert 1 <= int(locked.headers["retry-after"]) <= 600
+
+
+def test_a_correct_password_clears_the_failed_attempts(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "s3cret")
+    from app import server
+    importlib.reload(server)
+    c = TestClient(server.app)
+    for _ in range(5):
+        c.post("/api/login", json={"password": "typo"})
+    assert c.post("/api/login", json={"password": "s3cret"}).status_code == 200
+    assert "7 attempts left" in c.post("/api/login", json={"password": "typo"}).json()["detail"]  # counter reset
