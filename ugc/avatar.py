@@ -71,10 +71,8 @@ def view_prompt(view: str, hairstyle: str | None) -> str:
 
 
 def reference_files() -> list[Path]:
-    """Identity references for product shoots: the approved sheet, else a legacy single avatar image."""
-    sheet = [view_path(v) for v in VIEW_ORDER if view_path(v).exists()]
-    legacy = config.DATA_DIR / "avatar_reference.png"
-    return sheet or ([legacy] if legacy.exists() else [])
+    """Identity references for product shoots: the views in the permanent avatar, in priority order."""
+    return [view_path(v) for v in VIEW_ORDER if view_path(v).exists()]
 
 
 def save_base(img: np.ndarray) -> Path:
@@ -104,7 +102,7 @@ def clear_all() -> int:
     """Delete the whole permanent avatar (base, views, history, settings) and the old single-image avatar."""
     n = sum(1 for p in avatar_dir().rglob("*") if p.is_file()) if avatar_dir().exists() else 0
     shutil.rmtree(avatar_dir(), ignore_errors=True)
-    legacy = config.DATA_DIR / "avatar_reference.png"
+    legacy = config.DATA_DIR / "avatar_reference.png"  # leftover from the removed single-image upload
     if legacy.exists():
         legacy.unlink()
         n += 1

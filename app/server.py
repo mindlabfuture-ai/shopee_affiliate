@@ -444,15 +444,6 @@ def avatar_files(path: str):
     return FileResponse(f)
 
 
-@app.post("/api/avatar-reference", dependencies=[Depends(require_auth)])
-def avatar_reference(photo: UploadFile = File(...)):
-    """Saved avatar used for identity consistency across products."""
-    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with (config.DATA_DIR / "avatar_reference.png").open("wb") as f:
-        shutil.copyfileobj(photo.file, f)
-    return {"ok": True}
-
-
 @app.post("/api/products/{slug}/approve", dependencies=[Depends(require_auth)])
 def approve(slug: str, body: dict = Body(...)):
     name = Path(str(body.get("avatar", ""))).name

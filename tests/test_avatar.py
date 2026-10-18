@@ -125,10 +125,10 @@ def test_needs_a_base_photo():
         avatar.generate_view(FakeProv(), "front", None)
 
 
-def test_reference_files_prefer_the_sheet_then_the_legacy_image():
+def test_reference_files_are_the_sheet_views_in_priority_order():
     assert avatar.reference_files() == []
-    write_image(config.DATA_DIR / "avatar_reference.png", face_image(90))
-    assert [p.name for p in avatar.reference_files()] == ["avatar_reference.png"]
+    write_image(config.DATA_DIR / "avatar_reference.png", face_image(90))  # old single image: no longer used
+    assert avatar.reference_files() == []
     for v in ("right", "closeup", "front"):
         write_image(avatar.view_path(v), face_image(80))
     assert [p.name for p in avatar.reference_files()] == ["front.png", "closeup.png", "right.png"]
@@ -300,3 +300,11 @@ def test_missing_view_keeps_the_hair_of_the_views_you_already_have(client, tmp_p
                                                          "confirm_usd": est["usd"]}).json()["job"])
     assert "Keep the same hairstyle" in client.prov.calls[-1]["prompt"]
     assert "straight" not in client.prov.calls[-1]["prompt"]
+
+
+def test_the_old_single_image_upload_is_gone(client, tmp_path):
+    with write_image(tmp_path / "a.png", face_image(100)).open("rb") as f:
+        r = client.post("/api/avatar-reference", files={"photo": ("a.png", f, "image/png")})
+    assert r.status_code in (404, 405)
+    assert not (config.DATA_DIR / "avatar_reference.png").exists()
+    assert "avRef" not in (Path(__file__).parent.parent / "app" / "static" / "index.html").read_text()

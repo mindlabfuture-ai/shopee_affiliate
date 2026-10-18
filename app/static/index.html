@@ -143,7 +143,6 @@
         <label style="margin:0">Images</label><select id="avN" style="width:auto"><option>1</option><option selected>2</option><option>3</option></select>
         <button class="primary" id="avBtn">Generate</button><span class="note" id="avCost"></span>
       </div>
-      <div class="actions"><span class="note">Saved avatar (same person across products):</span><input type="file" id="avRef" accept="image/*" style="width:auto"><button id="avRefBtn">Save</button></div>
       <div class="actions"><span class="note">Made the images elsewhere (e.g. ChatGPT) with the storyboard prompt? Upload them for the same check:</span>
         <input type="file" id="avUp" accept="image/*" multiple style="width:auto"><button id="avUpBtn">Upload and check</button><span class="note" id="avUpMsg"></span></div>
       <div class="thumbs" id="avatars"></div>
@@ -289,10 +288,6 @@ $("#avBtn").onclick = (e) => guarded(e.target, $("#avCost"), async () => {
   $("#avCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/avatar`, { n, storyboard: +$("#sbSel").value || 0, confirm_usd: est }); await waitJob(job, $("#avCost"));
 });
 $("#avatars").onclick = async (e) => { const n = e.target.dataset.approve; if (n) { await post(`/api/products/${slug}/approve`, { avatar: n }); refresh(); } };
-$("#avRefBtn").onclick = async () => {
-  const f = $("#avRef").files[0]; if (!f) return; const fd = new FormData(); fd.append("photo", f);
-  await api("/api/avatar-reference", { method: "POST", body: fd }); alert("Saved. Used as the identity reference for new avatar images.");
-};
 $("#vidBtn").onclick = (e) => guarded(e.target, $("#vidCost"), async () => {
   const est = (await post(`/api/products/${slug}/video/estimate`)).usd;
   if (!confirm(`Generate the video? Estimated cost $${est.toFixed(2)}.`)) return;
