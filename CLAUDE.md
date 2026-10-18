@@ -84,3 +84,7 @@ Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `
   `data.request_id` -> poll `/api/v2/jobs/{id}` -> `result_url`; auth `Authorization: Bearer $DEAPI_API_KEY`; limits and model
   slugs come live from `/api/v2/models`; `python -m ugc deapi-models` lists them. Built against the docs and a fake of the API in
   `tests/test_deapi.py`; not yet run against the real service. Never send the key to the `result_url` host (tested).
+- Deployed 2026-10-18 (accounts: Railway user mindlabfuture-ai, Netlify mindlabfutureai@gmail.com): Railway project
+  bfb3b1cb-877b-4741-b4fb-18e5dba3413c / service ugc-api fba2eafe-7708-4afe-905b-8ba665f8bde3 / volume /data;
+  Netlify site 8cce25f7-6f7f-4485-8bbf-2c1228335c4a (ugc-studio-mindlab). The app is locked (503) until APP_PASSWORD is
+  set on Railway. If the Railway domain changes, update the two proxy targets in netlify.toml and redeploy Netlify.

@@ -95,3 +95,17 @@ looking at the video yourself before posting.
 `data/` your products, outputs and spend ledger (git-ignored).
 
 Rules this encodes: see `CLAUDE.md`.
+
+## Deployed (Railway + Netlify)
+
+- **API:** Railway project `ugc-studio`, service `ugc-api`, built from `Dockerfile` on branch `claude/eager-babbage-r72e68`,
+  volume `ugc-data` mounted at `/data`, URL `https://ugc-api-production.up.railway.app`.
+- **UI:** Netlify site `ugc-studio-mindlab` (`https://ugc-studio-mindlab.netlify.app`) serves `app/static` and proxies
+  `/api/*` and `/files/*` to Railway (`netlify.toml`), so the browser sees one origin.
+- The container sets `UGC_REQUIRE_PASSWORD=1`: until `APP_PASSWORD` is set on Railway the app answers 503 to everything but
+  `/health`. Set these in Railway > ugc-api > Variables (never in the repo): `APP_PASSWORD`, `ANTHROPIC_API_KEY`, and the
+  generation key for your provider (`DEAPI_API_KEY` with `UGC_PROVIDER=deapi`, or `FAL_KEY`). Optional: `UGC_MAX_CLIP_S=4`,
+  `UGC_DAILY_CAP_USD`, `UGC_DEAPI_*` model pins.
+- Login: 8 failed attempts lock logins for 10 minutes; the session cookie is HttpOnly, Secure, SameSite=Strict.
+- UI changes: the Netlify site was deployed by upload, not Git. Redeploy with the command from the Netlify tool, or link the
+  site to the GitHub repo in Netlify settings. API changes redeploy automatically when `ugc/`, `app/` or the Dockerfile change.
