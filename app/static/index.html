@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UGC Studio</title>
+<style>
+  :root {
+    --bg: #faf8f6; --card: #ffffff; --ink: #1f1a17; --muted: #6b625b; --line: #e6dfd8;
+    --accent: #a8322f; --accent-ink: #ffffff; --ok: #2c7a4b; --warn: #a86a00; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171412; --card: #211d1a; --ink: #f1ebe5; --muted: #a39a92; --line: #3a332e;
+            --accent: #e0645f; --accent-ink: #1a0f0e; --ok: #5cc287; --warn: #e0a845; --bad: #ef7a72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  header { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
+  input, textarea, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 84px; resize: vertical; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card);
+           color: var(--ink); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .thumbs figure { margin: 0; width: 150px; }
+  .thumbs img, .thumbs video { width: 150px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .thumbs figcaption { font-size: 12px; color: var(--muted); }
+  .sel img { outline: 3px solid var(--accent); }
+  pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: 10px; font-size: 13px; margin: 6px 0; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; }
+  .pass { color: var(--ok); } .warn { color: var(--warn); } .fail, .error { color: var(--bad); }
+  .info, .skip { color: var(--muted); }
+  .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; font-size: 13px; }
+  .hidden { display: none !important; }
+  #login { max-width: 320px; margin: 18vh auto; }
+  .note { color: var(--muted); font-size: 13px; }
+  .banner { padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px dashed var(--warn); color: var(--warn); font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="login" class="hidden">
+  <section>
+    <h2>UGC Studio</h2>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <div class="actions"><button class="primary" id="loginBtn">Sign in</button><span id="loginErr" class="fail"></span></div>
+  </section>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <h1>UGC Studio</h1>
+  <div class="meta" id="status"></div>
+</header>
+<main>
+  <div id="keyWarn" class="banner hidden"></div>
+
+  <section>
+    <h2>Products</h2>
+    <div class="row">
+      <select id="productSelect"></select>
+      <div class="actions" style="margin:0"><button id="newBtn">New product</button></div>
+    </div>
+  </section>
+
+  <section id="newForm" class="hidden">
+    <h2>New product</h2>
+    <form id="productForm">
+      <div class="row">
+        <div><label>Name *</label><input name="name" required placeholder="red backless slip dress"></div>
+        <div><label>Colorway *</label><input name="colorway" required placeholder="deep red"></div>
+        <div><label>Exact color hex (recommended)</label><input name="color_hex" placeholder="#b32d2f"></div>
+      </div>
+      <div class="row">
+        <div><label>Length</label><input name="length" placeholder="ankle-length maxi"></div>
+        <div><label>Fabric</label><input name="fabric" placeholder="cotton blend"></div>
+        <div><label>Required shots</label><input name="required_shots" value="front,back,full_length"></div>
+      </div>
+      <label>Key features, one per line as "name: description"</label>
+      <textarea name="features" placeholder="neckline: gathered scoop sitting high on the chest&#10;back: deep V open back"></textarea>
+      <label>Never show (comma separated)</label><input name="avoid" placeholder="sheer lining">
+      <label>Listing photos (the real product, original resolution)</label>
+      <input name="photos" type="file" accept="image/*" multiple>
+      <div class="actions"><button class="primary" type="submit">Save product</button></div>
+    </form>
+  </section>
+
+  <div id="workspace" class="hidden">
+    <section>
+      <h2>1. Listing photos <span class="note">the garment truth every check is measured against</span></h2>
+      <div class="thumbs" id="listing"></div>
+      <div class="actions"><input type="file" id="morePhotos" accept="image/*" multiple style="width:auto"><button id="addPhotos">Add photos</button></div>
+    </section>
+
+    <section>
+      <h2>2. Plan <span class="note">Claude writes the prompts; the garment lock is added by code</span></h2>
+      <div class="actions"><button class="primary" id="planBtn">Generate plan</button><span class="note" id="planMsg"></span></div>
+      <div id="plan"></div>
+    </section>
+
+    <section>
+      <h2>3. Avatar image <span class="note">checked against the listing before any video is made</span></h2>
+      <div class="actions">
+        <label style="margin:0">Images</label><select id="avN" style="width:auto"><option>1</option><option selected>2</option><option>3</option></select>
+        <button class="primary" id="avBtn">Generate</button><span class="note" id="avCost"></span>
+      </div>
+      <div class="actions"><span class="note">Saved avatar (same person across products):</span><input type="file" id="avRef" accept="image/*" style="width:auto"><button id="avRefBtn">Save</button></div>
+      <div class="thumbs" id="avatars"></div>
+    </section>
+
+    <section>
+      <h2>4. Video <span class="note">silent clips from the approved avatar, joined with audio stripped</span></h2>
+      <div class="actions"><button class="primary" id="vidBtn">Generate video</button><span class="note" id="vidCost"></span></div>
+      <div class="thumbs" id="final"></div>
+    </section>
+
+    <section>
+      <h2>5. QA report</h2>
+      <div id="qa"><span class="note">No report yet. Generate a video, or check one made elsewhere:</span></div>
+      <div class="actions"><input type="file" id="qaFile" accept="video/*" style="width:auto"><button id="qaBtn">Check this video</button></div>
+      <div id="checklist"></div>
+    </section>
+  </div>
+</main>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let slug = null, product = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { showLogin(); throw new Error("login required"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+const post = (p, b) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b ?? {}) });
+
+function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); }
+async function login() {
+  try { await post("/api/login", { password: $("#pw").value }); $("#login").classList.add("hidden"); boot(); }
+  catch (e) { $("#loginErr").textContent = e.message; }
+}
+
+async function waitJob(id, msgEl) {
+  for (;;) {
+    const j = await api("/api/jobs/" + id);
+    if (j.status === "done") return j.result;
+    if (j.status === "error") throw new Error(j.error);
+    if (msgEl) msgEl.textContent = "working…";
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+async function guarded(btn, msgEl, fn) {
+  btn.disabled = true;
+  try { await fn(); } catch (e) { msgEl ? (msgEl.textContent = e.message) : alert(e.message); }
+  finally { btn.disabled = false; if (msgEl && !msgEl.textContent.startsWith("working")) {} await refresh(); }
+}
+
+async function boot() {
+  $("#app").classList.remove("hidden");
+  const s = await api("/api/state");
+  $("#status").textContent = `Today ~$${s.spent_today.toFixed(2)} of $${s.cap.toFixed(2)} cap · ${s.config.video.split("/").slice(1).join("/")} @ ${s.config.resolution} · ${s.config.claude}`;
+  const missing = Object.entries(s.keys).filter(([, v]) => !v).map(([k]) => k.toUpperCase());
+  const kw = $("#keyWarn");
+  kw.classList.toggle("hidden", !missing.length);
+  kw.textContent = missing.length ? `Missing API key(s): ${missing.join(", ")}. Set them in your shell before starting the app.` : "";
+  const sel = $("#productSelect");
+  sel.innerHTML = s.products.map((p) => `<option ${p === slug ? "selected" : ""}>${esc(p)}</option>`).join("") || "<option value=''>(none yet)</option>";
+  if (!slug && s.products.length) slug = s.products[0];
+  slug = sel.value || slug;
+  if (slug) await refresh(); else $("#workspace").classList.add("hidden");
+}
+
+function badge(st) { return `<span class="pill ${st}">${st}</span>`; }
+function renderReport(r) {
+  if (!r) return "";
+  if (r.overall === "error") return `<div class="check">${badge("error")} ${esc(r.error)}</div>`;
+  return `<div class="check"><strong>Overall</strong> ${badge(r.overall)}</div>` +
+    r.checks.map((c) => `<div class="check">${badge(c.status)} <span><strong>${esc(c.name)}</strong> ${esc(c.detail)}</span></div>`).join("");
+}
+
+async function refresh() {
+  if (!slug) return;
+  product = await api("/api/products/" + slug);
+  $("#workspace").classList.remove("hidden");
+  $("#listing").innerHTML = product.listing.map((u) => `<figure><img src="${u}"></figure>`).join("") || '<span class="note">No photos yet.</span>';
+  const p = product.plan;
+  $("#plan").innerHTML = !p ? "" :
+    `<div class="note">Setting: ${esc(p.setting)}</div>` +
+    p.clips.map((c) => `<strong>Clip ${c.index} · ${c.duration_s}s · ${esc(c.shots.join(", "))}</strong><pre>${esc(c.prompt)}</pre>`).join("") +
+    `<strong>Hooks</strong><pre>${esc(p.hook_captions.join("\n"))}</pre><strong>TikTok caption</strong><pre>${esc(p.tiktok_caption)}</pre>` +
+    `<strong>Shopee caption</strong><pre>${esc(p.shopee_caption)}</pre>` +
+    (p.risks.length ? `<strong>Risks</strong><pre>${esc(p.risks.join("\n"))}</pre>` : "") +
+    (p.lint.length ? p.lint.map((l) => `<div class="check">${badge(l.level === "error" ? "fail" : "warn")} ${esc(l.msg)}</div>`).join("") : `<div class="check">${badge("pass")} lint clean</div>`);
+  $("#avatars").innerHTML = product.avatars.map((a) =>
+    `<figure class="${a.name === product.approved_avatar ? "sel" : ""}"><img src="${a.url}">
+     <figcaption>${a.qa ? badge(a.qa.overall) : ""} ${esc(a.name)}</figcaption>
+     <button data-approve="${esc(a.name)}">${a.name === product.approved_avatar ? "Approved" : "Approve"}</button></figure>`).join("");
+  $("#final").innerHTML = product.final ? `<figure><video src="${product.final}?t=${Date.now()}" controls style="width:220px"></video><figcaption>final.mp4 (silent)</figcaption></figure>` : "";
+  $("#qa").innerHTML = product.video_qa ? renderReport(product.video_qa) : '<span class="note">No report yet. Generate a video, or check one made elsewhere:</span>';
+  if (product.plan) $("#checklist").innerHTML = "<strong>Before you post</strong><pre>" + esc(product.plan.disclosure_checklist.join("\n")) + "</pre>";
+  const a = await post(`/api/products/${slug}/avatar/estimate`, { n: +$("#avN").value });
+  $("#avCost").textContent = `≈ $${a.usd.toFixed(2)}`;
+  if (product.plan) { const v = await post(`/api/products/${slug}/video/estimate`); $("#vidCost").textContent = `≈ $${v.usd.toFixed(2)} for ${v.seconds}s`; }
+  const s = await api("/api/state");
+  $("#status").textContent = $("#status").textContent.replace(/Today ~\$[\d.]+/, `Today ~$${s.spent_today.toFixed(2)}`);
+}
+
+$("#loginBtn").onclick = login;
+$("#pw").onkeydown = (e) => e.key === "Enter" && login();
+$("#newBtn").onclick = () => $("#newForm").classList.toggle("hidden");
+$("#productSelect").onchange = (e) => { slug = e.target.value; refresh(); };
+$("#avN").onchange = () => refresh();
+$("#productForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await api("/api/products", { method: "POST", body: new FormData(e.target) });
+    slug = r.slug; e.target.reset(); $("#newForm").classList.add("hidden"); boot();
+  } catch (err) { alert(err.message); }
+};
+$("#addPhotos").onclick = async () => {
+  const fd = new FormData(); [...$("#morePhotos").files].forEach((f) => fd.append("photos", f));
+  if (!fd.has("photos")) return;
+  await api(`/api/products/${slug}/photos`, { method: "POST", body: fd }); $("#morePhotos").value = ""; refresh();
+};
+$("#planBtn").onclick = (e) => guarded(e.target, $("#planMsg"), async () => {
+  $("#planMsg").textContent = "working…"; const { job } = await post(`/api/products/${slug}/plan`); await waitJob(job, $("#planMsg")); $("#planMsg").textContent = "";
+});
+$("#avBtn").onclick = (e) => guarded(e.target, $("#avCost"), async () => {
+  const n = +$("#avN").value, est = (await post(`/api/products/${slug}/avatar/estimate`, { n })).usd;
+  if (!confirm(`Generate ${n} avatar image(s)? Estimated cost $${est.toFixed(2)}.`)) return;
+  $("#avCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/avatar`, { n, confirm_usd: est }); await waitJob(job, $("#avCost"));
+});
+$("#avatars").onclick = async (e) => { const n = e.target.dataset.approve; if (n) { await post(`/api/products/${slug}/approve`, { avatar: n }); refresh(); } };
+$("#avRefBtn").onclick = async () => {
+  const f = $("#avRef").files[0]; if (!f) return; const fd = new FormData(); fd.append("photo", f);
+  await api("/api/avatar-reference", { method: "POST", body: fd }); alert("Saved. Used as the identity reference for new avatar images.");
+};
+$("#vidBtn").onclick = (e) => guarded(e.target, $("#vidCost"), async () => {
+  const est = (await post(`/api/products/${slug}/video/estimate`)).usd;
+  if (!confirm(`Generate the video? Estimated cost $${est.toFixed(2)}.`)) return;
+  $("#vidCost").textContent = "working…"; const { job } = await post(`/api/products/${slug}/video`, { confirm_usd: est }); await waitJob(job, $("#vidCost"));
+});
+$("#qaBtn").onclick = (e) => guarded(e.target, null, async () => {
+  const f = $("#qaFile").files[0]; if (!f) return; const fd = new FormData(); fd.append("video", f);
+  const { job } = await api(`/api/products/${slug}/qa`, { method: "POST", body: fd }); $("#qa").textContent = "checking…"; await waitJob(job);
+});
+
+boot().catch(() => {});
+</script>
+</body>
+</html>

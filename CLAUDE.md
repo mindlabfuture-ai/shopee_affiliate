@@ -62,3 +62,20 @@ fal has an official MCP server for running models (generation): https://fal.ai/d
 - Docs-only server (no model runs): https://fal.ai/docs/mcp
 - For the production pipeline use the fal API/SDK with an API key from env vars
   (never commit keys). MCP is for interactive exploration and prototyping.
+
+## Code in this repo (UGC Studio)
+
+Local app, built 2026-10-18. See README.md. Run: `python -m ugc serve`; tests: `python -m pytest`.
+
+- `ugc/rules.py` encodes the compliance rules above; keep it in sync with this file.
+- `ugc/planner.py`: Claude Sonnet plans prompts. **Code**, not the model, prepends the garment-lock clause,
+  forces `generate_audio: false`, 9:16, clip lengths of 4/6/8 s, and lints for alteration verbs, speech/audio and
+  risky caption words (revises up to twice).
+- `ugc/qa/`: technical (ffmpeg), color (CIELAB), vision (Claude). `python -m ugc qa <product> <video|image>`.
+- Lean stack, configurable by env: `UGC_IMAGE_ENDPOINT` (fal-ai/nano-banana/edit), `UGC_VIDEO_ENDPOINT`
+  (fal-ai/veo3.1/lite/image-to-video, **deprecated by fal on 2026-11-17**), `UGC_VIDEO_RESOLUTION` (720p).
+- Cost rates in `ugc/config.py` are estimates from third-party pages, not fal's live prices. Daily cap `UGC_DAILY_CAP_USD`.
+- Avatar image is QA'd before any video is generated (cheap gate). Videos are silent; music is added in TikTok.
+- Secrets only via env vars (ANTHROPIC_API_KEY, FAL_KEY, APP_PASSWORD). Never commit them or `data/`.
+- Not yet verified live: real fal generation and real Claude calls (no keys in the build session). Tests mock both.
+- Possible later: deploy API on Railway and UI on Netlify (see earlier cost estimate); not needed for local use.

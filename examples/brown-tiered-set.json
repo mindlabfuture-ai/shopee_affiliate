@@ -1,0 +1,38 @@
+{
+  "slug": "brown-tiered-set",
+  "name": "brown tiered top and skirt set",
+  "category": "dress",
+  "colorway": "chocolate brown",
+  "color_hex": null,
+  "length": "mid-calf midi skirt",
+  "fabric": "",
+  "features": [
+    {
+      "name": "top",
+      "description": "short sleeves, round neck with contrast trim, horizontal cream stitch line across the chest, stitched cuffs and hem",
+      "show_in_video": true
+    },
+    {
+      "name": "skirt",
+      "description": "elastic waist, three tiers with cream contrast stitching, stitched hem",
+      "show_in_video": true
+    },
+    {
+      "name": "pockets",
+      "description": "side pockets",
+      "show_in_video": false
+    }
+  ],
+  "required_shots": [
+    "front",
+    "side",
+    "full_length"
+  ],
+  "avoid": [],
+  "setting_ideas": [],
+  "hook_ideas": [],
+  "language": "Taglish",
+  "target_duration_s": 10,
+  "notes": "Features read from phone screenshots of the listing. Verify against the original photos and set color_hex.",
+  "listing_url": null
+}
