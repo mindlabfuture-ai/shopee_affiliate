@@ -220,6 +220,7 @@ def test_product_shoots_use_the_whole_sheet_as_identity_references(client, tmp_p
     assert j["status"] == "done"
     assert client.prov.calls[-1]["avatar_ref"] == ["front.png", "closeup.png", "left.png", "right.png"]
     assert "keep her face" in client.prov.calls[-1]["prompt"]
+    assert "do not copy the clothing" in client.prov.calls[-1]["prompt"]  # the avatar wears a black dress in the sheet
 
 
 # ---------- your own images, removal ----------

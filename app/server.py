@@ -244,7 +244,9 @@ def avatar(slug: str, body: dict = Body(...)):
     avatar_refs = avatar_sheet.reference_files()
     prompt = p["storyboards"][sb_idx]["avatar_image"]["prompt"]
     if avatar_refs:
-        prompt += " The last reference images are the avatar: keep her face, hair and body the same."
+        prompt += (" The last reference images show the avatar: keep her face, hair and body the same, but do not "
+                   "copy the clothing she wears there. She wears only the garment described above, shown in the "
+                   "first reference photos.")
 
     def run():
         costs.guard(est)
