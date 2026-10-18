@@ -18,6 +18,15 @@ DEAPI_VIDEO_MODEL = os.environ.get("UGC_DEAPI_VIDEO_MODEL", "")
 DEAPI_SIZE = os.environ.get("UGC_DEAPI_SIZE", "576x1024")  # WxH, 9:16; clamped to each model's limits
 DEAPI_POLL_S = float(os.environ.get("UGC_DEAPI_POLL_S", "8"))  # Basic accounts allow only 200 status calls/day
 
+# Market research via a local shopee-mcp server (optional, opt-in, local use only: it drives a headed browser).
+# Empty = disabled. Pin a version, e.g. "npx -y @bintangtimurlangit/shopee-mcp@0.3.0".
+SHOPEE_MCP_CMD = os.environ.get("UGC_SHOPEE_MCP_CMD", "")
+SHOPEE_DOMAIN = os.environ.get("UGC_SHOPEE_DOMAIN", "shopee.ph")
+# Dedicated, throwaway buyer profile (it holds session cookies: treat it like a password). Never your affiliate login.
+SHOPEE_PROFILE_DIR = os.environ.get("UGC_SHOPEE_PROFILE_DIR", str(Path.home() / ".ugc-studio" / "shopee-profile"))
+SHOPEE_DELAY_S = float(os.environ.get("UGC_SHOPEE_DELAY_S", "4"))  # pause between page loads; keep volume low
+SHOPEE_CALL_TIMEOUT_S = float(os.environ.get("UGC_SHOPEE_CALL_TIMEOUT_S", "150"))
+
 # Lean stack. fal says the Veo 3.1 Lite endpoint is deprecated on 2026-11-17; swap via env, no code change.
 IMAGE_ENDPOINT = os.environ.get("UGC_IMAGE_ENDPOINT", "fal-ai/nano-banana/edit")
 VIDEO_ENDPOINT = os.environ.get("UGC_VIDEO_ENDPOINT", "fal-ai/veo3.1/lite/image-to-video")

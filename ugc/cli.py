@@ -1,17 +1,19 @@
-"""python -m ugc <command>: plan | qa | serve"""
+"""python -m ugc <command>: plan | qa | research | serve"""
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from . import config, planner, qa
+from .research import load_research
 from .spec import ProductSpec, listing_dir, listing_images, load_spec, product_dir, read_json, write_json
 
 
 def cmd_plan(a) -> int:
     spec = load_spec(a.product)
-    result = planner.make_plan(spec, listing_images(a.product))
+    result = planner.make_plan(spec, listing_images(a.product), research=load_research(a.product))
     write_json(product_dir(a.product) / "plan.json", result)
     errors = [i for i in result["lint"] if i["level"] == "error"]
     for sb in result["storyboards"]:
@@ -36,6 +38,32 @@ def cmd_qa(a) -> int:
     write_json(out, report.to_dict())
     print(f"report: {out}")
     return {"pass": 0, "warn": 1 if a.strict else 0, "fail": 1}[report.overall]
+
+
+def cmd_research(a) -> int:
+    from .research import shopee
+    spec = load_spec(a.product)
+    if a.show:
+        res = load_research(a.product)
+        if not res:
+            print("no research saved for this product")
+            return 1
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return 0
+    try:
+        res = shopee.run_research(spec, a.query, listings=a.listings, review_listings=a.reviews)
+    except shopee.ResearchError as e:
+        print(f"research failed: {e}", file=sys.stderr)
+        return 1
+    ins = res["insights"]
+    print(f"{res['listings_captured']} listings, {res['review_pages_captured']} review pages from {res['domain']}")
+    for title, key in (("Price band", "price_band"), ("Photo vs real complaints", "photo_vs_real_complaints"),
+                       ("Fit and sizing", "fit_and_sizing_notes"), ("Hook angles", "hook_angles"),
+                       ("Do not copy", "avoid_claims"), ("Caveats", "caveats")):
+        v = ins[key]
+        print(f"\n{title}: {v}" if isinstance(v, str) else f"\n{title}:\n" + "\n".join(f"  - {i}" for i in v))
+    print(f"\nsaved: {product_dir(a.product) / 'research.json'} (the next `plan` uses it)")
+    return 0
 
 
 def cmd_deapi_models(a) -> int:
@@ -73,6 +101,13 @@ def main(argv=None) -> int:
     s.add_argument("--strict", action="store_true", help="exit 1 on warnings")
     s.add_argument("--out")
     s.set_defaults(fn=cmd_qa)
+    s = sub.add_parser("research", help="optional: summarise similar Shopee listings and reviews (needs shopee-mcp)")
+    s.add_argument("product")
+    s.add_argument("--query", help="search words (default: the product name)")
+    s.add_argument("--listings", type=int, default=5, help="listings to read, max 10")
+    s.add_argument("--reviews", type=int, default=3, help="how many of those to also read reviews for")
+    s.add_argument("--show", action="store_true", help="print saved research instead of running it")
+    s.set_defaults(fn=cmd_research)
     s = sub.add_parser("deapi-models", help="list deAPI image-edit and image-to-video models with limits")
     s.set_defaults(fn=cmd_deapi_models)
     s = sub.add_parser("serve", help="run the local web app")

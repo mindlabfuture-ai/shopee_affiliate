@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from ugc import avatar as avatar_sheet
 from ugc import config, costs, fal_gen, llm, planner, providers, qa
 from ugc.imaging import IMG_EXT
+from ugc.research import load_research
 from ugc.spec import (Feature, ProductSpec, list_slugs, listing_dir, listing_images, load_spec, product_dir,
                       read_json, save_spec, slugify, write_json)
 
@@ -210,7 +211,7 @@ def plan(slug: str):
         raise HTTPException(400, "upload listing photos first")
 
     def run():
-        result = planner.make_plan(spec, listing)
+        result = planner.make_plan(spec, listing, research=load_research(slug))
         costs.record("claude_plan", 0.07, slug)  # rough estimate, recorded only on success
         write_json(product_dir(slug) / "plan.json", result)
         return result

@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+research = ["mcp>=1.0"]  # optional: Shopee market research via a local shopee-mcp server
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -27,7 +28,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["ugc", "ugc.qa", "ugc.providers", "app"]
+packages = ["ugc", "ugc.qa", "ugc.providers", "ugc.research", "app"]
 
 [tool.setuptools.package-data]
 app = ["static/*"]
