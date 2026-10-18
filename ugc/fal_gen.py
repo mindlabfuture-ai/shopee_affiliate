@@ -29,7 +29,7 @@ def _download(url: str, dest: Path) -> Path:
 
 
 def generate_avatar_images(prompt: str, reference_images: list[Path], n: int, out_dir: Path,
-                           prefix: str = "avatar") -> list[Path]:
+                           prefix: str = "avatar", on_image=None) -> list[Path]:
     """reference_images: garment listing photos first, then (optionally) the saved avatar reference.
     Files are named <prefix>_NN.png; the app uses prefix avatar_s<storyboard index>."""
     fal = _fal()
@@ -42,6 +42,8 @@ def generate_avatar_images(prompt: str, reference_images: list[Path], n: int, ou
         costs.record("image", costs.estimate_images(1), config.IMAGE_ENDPOINT)
         stamp = len(list(out_dir.glob(f"{prefix}_*.png"))) + 1 if out_dir.exists() else 1
         out.append(_download(res["images"][0]["url"], out_dir / f"{prefix}_{stamp:02d}.png"))
+        if on_image:
+            on_image(out[-1])
     return out
 
 

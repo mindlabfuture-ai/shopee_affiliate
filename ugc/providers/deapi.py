@@ -20,12 +20,16 @@ import httpx
 import numpy as np
 
 from .. import config, costs
+from ..imaging import resize_max
 
 BASE = "https://api.deapi.ai"
 MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 PREFER_IMAGE = ("nano", "qwen")
 PREFER_VIDEO = ("ltx",)
 MAX_WAIT_S = 20 * 60
+SUBMIT_RETRIES = 4  # Basic accounts hit the per-minute limit easily
+REF_MAX_SIDE = 1280  # smaller uploads: big PNGs made the origin time out (504)
+QUOTE_RETRY_AFTER_S = 300
 
 
 class DeapiError(RuntimeError):
@@ -49,6 +53,7 @@ class DeapiProvider:
         self.poll_s = config.DEAPI_POLL_S if poll_s is None else poll_s
         self._models: dict[str, list[dict]] = {}
         self._quotes: dict[tuple, float] = {}
+        self._quote_failed_until: dict[tuple, float] = {}
         self._chosen: dict[str, dict] = {}
 
     # ---------- plumbing ----------
@@ -162,9 +167,12 @@ class DeapiProvider:
     def _quote(self, key: tuple, path: str, body: dict) -> float | None:
         if key in self._quotes:
             return self._quotes[key]
+        if time.time() < self._quote_failed_until.get(key, 0):
+            return None
         try:
             price = float(self._request("POST", path, json=body).json()["data"]["price"])
         except (DeapiError, KeyError, ValueError, TypeError):
+            self._quote_failed_until[key] = time.time() + QUOTE_RETRY_AFTER_S
             return None  # caller falls back to the configured estimate
         self._quotes[key] = price
         return price
@@ -189,6 +197,23 @@ class DeapiProvider:
         return round(seconds * (per_sec if per_sec is not None else config.VIDEO_USD_PER_SEC), 4)
 
     # ---------- jobs ----------
+    def _submit(self, path: str, **kw) -> str:
+        """POST a job. A per-minute 429 is retried after Retry-After; a daily 429 or any other error is not
+        (a timeout may already have created a billable job, so it is never retried blindly)."""
+        for attempt in range(SUBMIT_RETRIES + 1):
+            if not self.key:
+                raise DeapiError("DEAPI_API_KEY is not set")
+            r = self.client.request("POST", path, headers={"Authorization": f"Bearer {self.key}", "Accept": "application/json"}, **kw)
+            if r.status_code == 429 and r.headers.get("X-RateLimit-Type", "minute") != "daily" and attempt < SUBMIT_RETRIES:
+                wait = min(max(float(r.headers.get("Retry-After", 20) or 20), 1.0), 90.0) + 1
+                print(f"deapi: rate limited on {path}, waiting {wait:.0f}s (attempt {attempt + 1}/{SUBMIT_RETRIES})")
+                self.sleep(wait)
+                continue
+            if r.status_code >= 400:
+                raise DeapiError(self._explain(r))
+            return r.json()["data"]["request_id"]
+        raise DeapiError(f"deAPI kept rate limiting {path}")
+
     def _wait(self, request_id: str) -> dict:
         start = time.time()
         while True:
@@ -216,10 +241,16 @@ class DeapiProvider:
 
     @staticmethod
     def _file_part(path: Path) -> tuple[str, bytes, str]:
+        """Images are re-encoded as JPEG (max 1280 px): smaller uploads, and no 504s from the origin."""
+        img = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is not None:
+            ok, buf = cv2.imencode(".jpg", resize_max(img, REF_MAX_SIDE), [cv2.IMWRITE_JPEG_QUALITY, 92])
+            if ok:
+                return (path.stem + ".jpg", buf.tobytes(), "image/jpeg")
         return (path.name, path.read_bytes(), MIME.get(path.suffix.lower(), "application/octet-stream"))
 
     # ---------- generation ----------
-    def generate_avatar_images(self, prompt, garments, avatar_ref, n, out_dir, prefix) -> list[Path]:
+    def generate_avatar_images(self, prompt, garments, avatar_ref, n, out_dir, prefix, on_image=None) -> list[Path]:
         costs.guard(self.estimate_images(n))
         p = self._image_params()
         limit = p.pop("max_images")
@@ -230,7 +261,7 @@ class DeapiProvider:
             fields = {"prompt": prompt, "seed": random.randint(1, 2**31 - 1), **{k: v for k, v in p.items()}}
             files = ([("images[]", self._file_part(r)) for r in refs] if len(refs) > 1
                      else [("image", self._file_part(refs[0]))])
-            rid = self._request("POST", "/api/v2/images/edits", data=fields, files=files).json()["data"]["request_id"]
+            rid = self._submit("/api/v2/images/edits", data=fields, files=files)
             done = self._wait(rid)
             img = cv2.imdecode(np.frombuffer(self._download(done["result_url"]), np.uint8), cv2.IMREAD_COLOR)
             if img is None:
@@ -239,6 +270,8 @@ class DeapiProvider:
             path = out_dir / f"{prefix}_{idx:02d}.png"
             cv2.imwrite(str(path), img)
             out.append(path)
+            if on_image:
+                on_image(path)
             costs.record("image", float((done.get("price") or {}).get("amount") or self.estimate_images(1)),
                          f"deapi {p['model']}")
         return out
@@ -250,8 +283,8 @@ class DeapiProvider:
         fields = {"prompt": prompt, "seed": random.randint(1, 2**31 - 1), **p}
         if negative_ok and negative_prompt:
             fields["negative_prompt"] = negative_prompt
-        rid = self._request("POST", "/api/v2/videos/animations", data=fields,
-                            files=[("first_frame_image", self._file_part(image))]).json()["data"]["request_id"]
+        rid = self._submit("/api/v2/videos/animations", data=fields,
+                           files=[("first_frame_image", self._file_part(image))])
         done = self._wait(rid)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(self._download(done["result_url"]))

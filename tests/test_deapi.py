@@ -43,9 +43,11 @@ def parts(req):
 class Api:
     """Fake of the documented deAPI v2 surface."""
 
-    def __init__(self, job_script=None, price=0.20):
+    def __init__(self, job_script=None, price=0.20, post_failures=None):
         self.requests, self.job_script, self.price = [], list(job_script or []), price
         self.posts = []
+        self.post_failures = list(post_failures or [])  # [(status, headers)] returned before a POST succeeds
+        self.post_attempts = 0
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         self.requests.append(req)
@@ -59,6 +61,10 @@ class Api:
                 return httpx.Response(422, json={"message": "nope", "errors": {}})
             return httpx.Response(200, json={"data": {"price": self.price, "is_estimated": False}})
         if req.method == "POST":
+            self.post_attempts += 1
+            if self.post_failures:
+                status, headers = self.post_failures.pop(0)
+                return httpx.Response(status, headers=headers, json={"message": "Too Many Attempts."})
             self.posts.append(req)
             return httpx.Response(200, json={"data": {"request_id": "rid-1"}})
         if path.startswith("/api/v2/jobs/"):
@@ -207,3 +213,56 @@ def test_size_keeps_9_16_when_the_model_caps_resolution(monkeypatch):
 
 def test_size_unchanged_when_within_limits():
     assert DeapiProvider._size({"max_width": 2048, "max_height": 2048, "resolution_step": 32}) == (576, 1024)
+
+
+MINUTE = (429, {"X-RateLimit-Type": "minute", "Retry-After": "7"})
+
+
+def test_submit_waits_out_the_per_minute_rate_limit(tmp_path):
+    sleeps = []
+    api = Api(post_failures=[MINUTE, MINUTE])
+    api.download = b"mp4"
+    p = DeapiProvider(api_key="k", transport=httpx.MockTransport(api), sleep=sleeps.append, poll_s=0)
+    p.generate_clip("p", "", refs(tmp_path, 1)[0], 4, tmp_path / "c.mp4")
+    assert api.post_attempts == 3 and (tmp_path / "c.mp4").read_bytes() == b"mp4"
+    assert sleeps[:2] == [8.0, 8.0]  # Retry-After (7 s) plus a second
+
+
+def test_submit_gives_up_after_repeated_minute_limits(tmp_path):
+    api = Api(post_failures=[MINUTE] * 10)
+    p = DeapiProvider(api_key="k", transport=httpx.MockTransport(api), sleep=lambda s: None, poll_s=0)
+    with pytest.raises(DeapiError, match="rate limited"):
+        p.generate_clip("p", "", refs(tmp_path, 1)[0], 4, tmp_path / "c.mp4")
+    assert api.post_attempts == 5  # first try + 4 retries
+
+
+def test_daily_limit_and_gateway_timeout_are_never_retried(tmp_path):
+    for failure in ((429, {"X-RateLimit-Type": "daily", "Retry-After": "999"}), (504, {})):
+        api = Api(post_failures=[failure, failure])
+        with pytest.raises(DeapiError):
+            provider(api).generate_clip("p", "", refs(tmp_path, 1)[0], 4, tmp_path / "c.mp4")
+        assert api.post_attempts == 1  # a timed-out POST may already be a billable job
+
+
+def test_reference_images_are_downscaled_to_jpeg(tmp_path):
+    big = write_image(tmp_path / "big.png", np.full((2000, 3000, 3), 120, np.uint8))
+    name, data, mime = DeapiProvider._file_part(big)
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    assert name == "big.jpg" and mime == "image/jpeg" and max(img.shape[:2]) == 1280
+
+
+def test_failed_quotes_are_not_retried_on_every_page_refresh():
+    api = Api(price=None)
+    p = provider(api)
+    for _ in range(5):
+        p.estimate_video(10)
+        p.estimate_images(2)
+    price_calls = sum(r.url.path.endswith("/price") for r in api.requests)
+    assert price_calls == 2  # one failed attempt per endpoint, then backed off
+
+
+def test_each_avatar_is_handed_back_as_soon_as_it_exists(tmp_path):
+    seen = []
+    out = provider(Api()).generate_avatar_images("p", refs(tmp_path, 1), None, 2, tmp_path / "av", "avatar_s0",
+                                                 on_image=seen.append)
+    assert seen == out and len(out) == 2

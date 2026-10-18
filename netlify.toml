@@ -1,4 +1,4 @@
-# Static UI on Netlify; /api and /files are proxied to the Railway service so the browser sees one origin
+# Netlify fronts the Railway app: the page, /api and /files are all proxied to the Railway service so the browser sees one origin
 # (the login cookie works, no CORS). The password check happens on the Railway side.
 [build]
   publish = "app/static"
@@ -12,5 +12,11 @@
 [[redirects]]
   from = "/files/*"
   to = "https://ugc-api-production.up.railway.app/files/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/"
+  to = "https://ugc-api-production.up.railway.app/"
   status = 200
   force = true

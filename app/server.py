@@ -80,19 +80,27 @@ def login(response: Response, body: dict = Body(...)):
 
 
 # ---------- jobs ----------
-def start_job(label: str, fn) -> str:
+def start_job(label: str, fn, slug: str | None = None) -> str:
+    """Run fn in the background. The last failure per product is saved to disk, so the page can still show
+    it after a reload or a server restart (jobs themselves live in memory only)."""
     jid = uuid.uuid4().hex[:10]
     jobs[jid] = {"id": jid, "label": label, "status": "running", "result": None, "error": None}
+    err_file = product_dir(slug) / "last_error.json" if slug else None
 
     def run():
         try:
             res = fn()
             with jobs_lock:
                 jobs[jid].update(status="done", result=res)
+            if err_file:
+                err_file.unlink(missing_ok=True)
         except Exception as e:  # surfaced to the UI
             traceback.print_exc()
+            msg = f"{type(e).__name__}: {e}"
             with jobs_lock:
-                jobs[jid].update(status="error", error=f"{type(e).__name__}: {e}")
+                jobs[jid].update(status="error", error=msg)
+            if err_file:
+                write_json(err_file, {"label": label, "error": msg, "at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
     pool.submit(run)
     return jid
@@ -144,6 +152,7 @@ def _state(slug: str) -> dict:
         "clips": [rel(p) for p in sorted((d / "clips").glob("clip_*.*"))] if (d / "clips").exists() else [],
         "final": rel(d / "final.mp4") if (d / "final.mp4").exists() else None,
         "video_qa": read_json(d / "qa" / "final.json"),
+        "last_error": read_json(d / "last_error.json"),
     }
 
 
@@ -200,7 +209,7 @@ def plan(slug: str):
         write_json(product_dir(slug) / "plan.json", result)
         return result
 
-    return {"job": start_job(f"plan {slug}", run)}
+    return {"job": start_job(f"plan {slug}", run, slug=slug)}
 
 
 # ---------- avatar images ----------
@@ -238,13 +247,12 @@ def avatar(slug: str, body: dict = Body(...)):
 
     def run():
         costs.guard(est)
-        imgs = prov.generate_avatar_images(prompt, listing[:3], avatar_ref if avatar_ref.exists() else None, n,
-                                           d / "avatars", f"avatar_s{sb_idx}")
-        for img in imgs:  # cheap gate: check each still before any video money is spent
-            _qa_avatar(d, spec, listing, img)
+        imgs = prov.generate_avatar_images(
+            prompt, listing[:3], avatar_ref if avatar_ref.exists() else None, n, d / "avatars", f"avatar_s{sb_idx}",
+            on_image=lambda img: _qa_avatar(d, spec, listing, img))  # cheap gate before any video money is spent
         return [i.name for i in imgs]
 
-    return {"job": start_job(f"avatar {slug}", run)}
+    return {"job": start_job(f"avatar {slug}", run, slug=slug)}
 
 
 @app.post("/api/products/{slug}/avatar/upload", dependencies=[Depends(require_auth)])
@@ -279,7 +287,7 @@ def avatar_upload(slug: str, storyboard: int = Form(0), photos: list[UploadFile]
             _qa_avatar(d, spec, listing, img)
         return [i.name for i in saved]
 
-    return {"job": start_job(f"avatar upload {slug}", run)}
+    return {"job": start_job(f"avatar upload {slug}", run, slug=slug)}
 
 
 @app.post("/api/products/{slug}/clips/upload", dependencies=[Depends(require_auth)])
@@ -310,7 +318,7 @@ def clips_upload(slug: str, videos: list[UploadFile] = File(...), caption: str =
         write_json(d / "qa" / "final.json", rep.to_dict())
         return rep.to_dict()
 
-    return {"job": start_job(f"clips upload {slug}", run)}
+    return {"job": start_job(f"clips upload {slug}", run, slug=slug)}
 
 
 @app.post("/api/avatar-reference", dependencies=[Depends(require_auth)])
@@ -372,17 +380,31 @@ def video(slug: str, body: dict = Body(...)):
     image = d / "avatars" / appr["avatar"]
 
     def run():
-        costs.guard(est)
-        shutil.rmtree(d / "clips", ignore_errors=True)  # clips from a previous storyboard must not linger
-        clips = [prov.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"],
-                                       d / "clips" / f"clip_{c['index']:02d}.mp4") for c in sb["clips"]]
+        manifest = d / "clips" / "manifest.json"
+        want = {"avatar": appr["avatar"], "storyboard": sb["index"]}
+        if read_json(manifest) != want:  # clips from another avatar or storyboard must not linger
+            shutil.rmtree(d / "clips", ignore_errors=True)
+        (d / "clips").mkdir(parents=True, exist_ok=True)
+        write_json(manifest, want)
+        def done(c) -> bool:
+            f = d / "clips" / f"clip_{c['index']:02d}.mp4"
+            return f.exists() and f.stat().st_size > 0
+
+        todo = [c for c in sb["clips"] if not done(c)]  # finished clips are reused, never paid for twice
+        costs.guard(prov.estimate_video(sum(c["duration_s"] for c in todo)))
+        clips = []
+        for c in sb["clips"]:
+            path = d / "clips" / f"clip_{c['index']:02d}.mp4"
+            if c in todo:
+                prov.generate_clip(c["prompt"], c["negative_prompt"], image, c["duration_s"], path)
+            clips.append(path)
         final = fal_gen.join_clips(clips, d / "final.mp4")
         rep = qa.run_video_qa(spec, listing, final, use_vision=bool(os.environ.get("ANTHROPIC_API_KEY")),
                               caption=p["tiktok_caption"])
         write_json(d / "qa" / "final.json", rep.to_dict())
         return rep.to_dict()
 
-    return {"job": start_job(f"video {slug}", run)}
+    return {"job": start_job(f"video {slug}", run, slug=slug)}
 
 
 @app.post("/api/products/{slug}/qa", dependencies=[Depends(require_auth)])
@@ -401,7 +423,7 @@ def qa_upload(slug: str, video: UploadFile = File(...), caption: str = Form(""))
         write_json(d / "qa" / "final.json", rep.to_dict())
         return rep.to_dict()
 
-    return {"job": start_job(f"qa {slug}", run)}
+    return {"job": start_job(f"qa {slug}", run, slug=slug)}
 
 
 # ---------- files + UI ----------

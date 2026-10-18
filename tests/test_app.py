@@ -180,3 +180,51 @@ def test_secure_cookie_flag(monkeypatch):
     r = TestClient(server.app).post("/api/login", json={"password": "s3cret"})
     cookie = r.headers["set-cookie"].lower()
     assert "secure" in cookie and "httponly" in cookie and "samesite=strict" in cookie
+
+
+# ---------- failures that must stay visible, and resuming a half-finished video ----------
+class FakeProv:
+    name = "fake"
+
+    def __init__(self, fail_on=None):
+        self.calls, self.fail_on = [], fail_on
+
+    def missing_env(self): return []
+    def describe(self): return {"provider": "fake", "image": "i", "video": "v", "resolution": "r"}
+    def estimate_images(self, n): return 0.0
+    def estimate_video(self, seconds): return 0.0
+
+    def generate_clip(self, prompt, negative_prompt, image, duration_s, out_path):
+        self.calls.append(out_path.name)
+        if out_path.name == self.fail_on:
+            raise RuntimeError("deAPI POST /api/v2/videos/animations -> 429: Too Many Attempts.")
+        write_video(out_path, [make_frame((47, 45, 179)) for _ in range(12)])
+        return out_path
+
+
+@needs_ffmpeg
+def test_video_failure_is_saved_and_the_retry_only_pays_for_the_missing_clip(client, tmp_path, monkeypatch):
+    from ugc import providers
+    from ugc.spec import product_dir, write_json
+    fake = FakeProv(fail_on="clip_02.mp4")
+    monkeypatch.setitem(providers._instances, config.PROVIDER, fake)
+    slug = make_product(client, tmp_path)
+    d = product_dir(slug)
+    write_json(d / "plan.json", {"tiktok_caption": "AI-generated", "storyboards": [{"index": 0, "clips": [
+        {"index": 1, "duration_s": 4, "prompt": "p", "negative_prompt": "n"},
+        {"index": 2, "duration_s": 4, "prompt": "p", "negative_prompt": "n"}]}]})
+    write_image(d / "avatars" / "avatar_s0_01.png", make_frame((47, 45, 179)))
+    write_json(d / "approved.json", {"avatar": "avatar_s0_01.png"})
+
+    r = client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1})
+    assert wait(client, r.json()["job"], timeout=120)["status"] == "error"
+    st = client.get(f"/api/products/{slug}").json()
+    assert "429" in st["last_error"]["error"] and st["final"] is None  # the page can still show what went wrong
+    assert (d / "clips" / "clip_01.mp4").exists()  # the finished clip is kept
+
+    fake.fail_on = None
+    r = client.post(f"/api/products/{slug}/video", json={"confirm_usd": 1})
+    assert wait(client, r.json()["job"], timeout=120)["status"] == "done"
+    assert fake.calls == ["clip_01.mp4", "clip_02.mp4", "clip_02.mp4"]  # clip 1 was not generated (or paid for) again
+    st = client.get(f"/api/products/{slug}").json()
+    assert st["final"] and st["last_error"] is None
